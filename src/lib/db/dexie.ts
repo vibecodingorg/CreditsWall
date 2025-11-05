@@ -1,13 +1,13 @@
 import Dexie, { type Table } from 'dexie';
 
-export interface Child { id: string; name: string; avatar?: string; color?: string; created_at: string }
+export interface Child { id: string; name: string; avatar?: string; color?: string; total_earned?: number; total_spent?: number; total_penalty?: number; created_at: string }
 
 export async function listTasks(): Promise<TaskTemplate[]> {
   return db.tasks.orderBy('created_at').toArray();
 }
 
-export async function addTask(input: { title: string; points: number; icon?: string }): Promise<TaskTemplate> {
-  const t: TaskTemplate = { id: crypto.randomUUID(), title: input.title, points: input.points, icon: input.icon, active: 1, created_at: new Date().toISOString() };
+export async function addTask(input: { title: string; points: number; icon?: string; type?: 'single'|'daily' }): Promise<TaskTemplate> {
+  const t: TaskTemplate = { id: crypto.randomUUID(), title: input.title, points: input.points, icon: input.icon, type: input.type || 'daily', active: 1, created_at: new Date().toISOString() };
   await db.tasks.add(t);
   return t;
 }
@@ -43,8 +43,8 @@ export async function listPenaltyRules(): Promise<PenaltyRule[]> {
   return (db as any).penalties?.orderBy('created_at').toArray() ?? [];
 }
 
-export async function addPenaltyRule(input: { title: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up' }): Promise<PenaltyRule> {
-  const p: PenaltyRule = { id: crypto.randomUUID(), title: input.title, mode: input.mode, value: input.value, basis: input.basis, rounding: input.rounding, active: 1, created_at: new Date().toISOString() };
+export async function addPenaltyRule(input: { title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up' }): Promise<PenaltyRule> {
+  const p: PenaltyRule = { id: crypto.randomUUID(), title: input.title, icon: input.icon, mode: input.mode, value: input.value, basis: input.basis, rounding: input.rounding, active: 1, created_at: new Date().toISOString() };
   // @ts-ignore
   await (db as any).penalties.add(p);
   return p;
@@ -70,10 +70,10 @@ export async function addChild(input: { name: string; color?: string; avatar?: s
   await db.children.add(child);
   return child;
 }
-export interface TaskTemplate { id: string; title: string; points: number; icon?: string; active: number; created_at: string }
+export interface TaskTemplate { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number; created_at: string }
 export interface RewardItem { id: string; title: string; cost_points: number; icon?: string; active: number; created_at: string }
-export interface PenaltyRule { id: string; title: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up'; active: number; created_at: string }
-export type TxType = 'issue' | 'spend' | 'reverse' | 'adjust';
+export interface PenaltyRule { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up'; active: number; created_at: string }
+export type TxType = 'issue' | 'spend' | 'reverse' | 'adjust' | 'task_complete' | 'penalty';
 export interface Transaction {
   id: string; child_id: string; type: TxType; points: number; ref_id?: string;
   idempotency_key: string; created_at: string; created_by: 'local_device'|'parent'|'child';
@@ -123,8 +123,122 @@ export async function ensureDefaultChild(): Promise<Child> {
     id: crypto.randomUUID(),
     name: '小朋友',
     color: '#22c55e',
+    total_earned: 0,
+    total_spent: 0,
+    total_penalty: 0,
     created_at: new Date().toISOString()
   };
   await db.children.add(child);
   return child;
+}
+
+// 获取孩子的统计信息
+export async function getChildStats(childId: string): Promise<{ balance: number; totalEarned: number; totalSpent: number; totalPenalty: number }> {
+  const child = await db.children.get(childId);
+  if (!child) return { balance: 0, totalEarned: 0, totalSpent: 0, totalPenalty: 0 };
+  
+  const totalEarned = child.total_earned || 0;
+  const totalSpent = child.total_spent || 0;
+  const totalPenalty = child.total_penalty || 0;
+  // 剩余积分 = 积分总额 - 已使用积分 - 扣分总额
+  const balance = totalEarned - totalSpent - totalPenalty;
+  
+  return { balance, totalEarned, totalSpent, totalPenalty };
+}
+
+// 更新孩子的统计信息
+export async function updateChildStats(childId: string, earnedDelta: number, spentDelta: number, penaltyDelta: number = 0): Promise<void> {
+  const child = await db.children.get(childId);
+  if (!child) return;
+  
+  const newEarned = (child.total_earned || 0) + earnedDelta;
+  const newSpent = (child.total_spent || 0) + spentDelta;
+  const newPenalty = (child.total_penalty || 0) + penaltyDelta;
+  
+  await db.children.update(childId, {
+    total_earned: newEarned,
+    total_spent: newSpent,
+    total_penalty: newPenalty
+  });
+}
+
+// 获取今日开始时间（本地时区0点）
+function getTodayStart(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+// 获取今日已完成的任务ID列表
+export async function getTodayCompletedTasks(childId: string): Promise<Set<string>> {
+  const todayStart = getTodayStart().toISOString();
+  const completions = await db.transactions
+    .where('child_id').equals(childId)
+    .and(tx => tx.type === 'task_complete' && tx.created_at >= todayStart)
+    .toArray();
+  
+  return new Set(completions.map(tx => tx.ref_id).filter(Boolean) as string[]);
+}
+
+// 完成任务（添加交易记录并更新统计）
+export async function completeTask(childId: string, taskId: string, points: number): Promise<Transaction> {
+  const tx: Transaction = {
+    id: crypto.randomUUID(),
+    child_id: childId,
+    type: 'task_complete',
+    points: points,
+    ref_id: taskId,
+    idempotency_key: `task-${taskId}-${Date.now()}`,
+    created_at: new Date().toISOString(),
+    created_by: 'child',
+    sync_status: 'pending'
+  };
+  
+  await db.transactions.add(tx);
+  await updateChildStats(childId, points, 0);
+  
+  return tx;
+}
+
+// 执行扣分（添加交易记录并更新统计）
+export async function applyPenalty(childId: string, penaltyId: string, points: number, title: string): Promise<Transaction> {
+  const tx: Transaction = {
+    id: crypto.randomUUID(),
+    child_id: childId,
+    type: 'penalty',
+    points: -Math.abs(points),
+    ref_id: penaltyId,
+    idempotency_key: `penalty-${penaltyId}-${Date.now()}`,
+    created_at: new Date().toISOString(),
+    created_by: 'child',
+    notes: title,
+    sync_status: 'pending'
+  };
+  
+  await db.transactions.add(tx);
+  // 扣分记入 penaltyDelta
+  await updateChildStats(childId, 0, 0, Math.abs(points));
+  
+  return tx;
+}
+
+// 兑换奖励（添加交易记录并更新统计）
+export async function redeemReward(childId: string, rewardId: string, cost: number, title: string): Promise<Transaction> {
+  const tx: Transaction = {
+    id: crypto.randomUUID(),
+    child_id: childId,
+    type: 'spend',
+    points: -Math.abs(cost),
+    ref_id: rewardId,
+    idempotency_key: `reward-${rewardId}-${Date.now()}`,
+    created_at: new Date().toISOString(),
+    created_by: 'child',
+    notes: title,
+    sync_status: 'pending'
+  };
+  
+  await db.transactions.add(tx);
+  // 兑换消耗记入 spentDelta
+  await updateChildStats(childId, 0, Math.abs(cost), 0);
+  
+  return tx;
 }

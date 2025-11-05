@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS child (
   name TEXT NOT NULL,
   avatar TEXT,
   color TEXT,
+  total_earned INTEGER DEFAULT 0,
+  total_spent INTEGER DEFAULT 0,
+  total_penalty INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -12,6 +15,7 @@ CREATE TABLE IF NOT EXISTS task_template (
   title TEXT NOT NULL,
   points INTEGER NOT NULL,
   icon TEXT,
+  type TEXT DEFAULT 'daily',
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
@@ -38,6 +42,7 @@ CREATE TABLE IF NOT EXISTS reason_catalog (
 CREATE TABLE IF NOT EXISTS penalty_rule (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
+  icon TEXT,
   mode TEXT NOT NULL,
   value INTEGER NOT NULL,
   basis TEXT,

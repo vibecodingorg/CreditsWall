@@ -1,41 +1,34 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { addTransaction, getBalance } from '$lib/db/ledger';
-  import { listRewards } from '$lib/db/dexie';
+  import { listRewards, ensureDefaultChild, getChildStats, redeemReward } from '$lib/db/dexie';
   import { onMount } from 'svelte';
   import RewardCard from '$lib/components/RewardCard.svelte';
   import SuccessFeedback from '$lib/components/SuccessFeedback.svelte';
+  import PointsCard from '$lib/components/PointsCard.svelte';
   
   let balance = 0;
-  async function refresh() { balance = await getBalance(); }
+  let totalEarned = 0;
+  let totalSpent = 0;
+  let totalPenalty = 0;
+  let childId = '';
+  
+  async function refresh() { 
+    const child = await ensureDefaultChild();
+    childId = child.id;
+    const stats = await getChildStats(childId);
+    balance = stats.balance;
+    totalEarned = stats.totalEarned;
+    totalSpent = stats.totalSpent;
+    totalPenalty = stats.totalPenalty;
+  }
   
   onMount(() => {
     refresh();
-    const handler = () => { refresh(); };
-    window.addEventListener('ledger:changed', handler);
-    return () => window.removeEventListener('ledger:changed', handler);
+    loadRewards();
   });
   
   let showConfirm = false;
   let current: { title: string; cost: number; icon?: string } | null = null;
-  let selectedReason = 'reward';
-  
-  let reasons = [
-    { code: 'reward', title: '奖励消费' },
-    { code: 'family.activity', title: '家庭活动' },
-    { code: 'snack', title: '零食' }
-  ];
-  
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/reasons');
-      const data = await res.json();
-      if (data && Array.isArray(data.items) && data.items.length) {
-        reasons = data.items.map((r: any) => ({ code: r.code, title: r.title }));
-        if (!reasons.find(r => r.code === selectedReason)) selectedReason = reasons[0].code;
-      }
-    } catch {}
-  });
   
   type RewardItem = { title: string; cost: number; color: string; icon?: string };
   let items: RewardItem[] = [];
@@ -75,13 +68,8 @@
   async function confirmSpend() {
     if (!current) return;
     
-    await addTransaction({ 
-      type: 'spend', 
-      points: -current.cost, 
-      reason_code: selectedReason, 
-      reason_category: 'reward', 
-      created_by: 'child' 
-    });
+    // 使用新的兑换函数
+    await redeemReward(childId, current.icon || 'gift', current.cost, current.title);
     
     // 显示成功动画
     lastCost = current.cost;
@@ -100,11 +88,14 @@
 </script>
 
 <section class="p-6 space-y-6">
-  <!-- 余额卡片 -->
-  <div class="bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl p-6 shadow-lg">
-    <div class="text-sm opacity-90 mb-1">{$t('home.balance')}</div>
-    <div class="text-5xl font-bold">{balance}</div>
-  </div>
+  <!-- 积分卡片 -->
+  <PointsCard 
+    {balance} 
+    {totalEarned} 
+    {totalSpent} 
+    {totalPenalty} 
+    variant="store" 
+  />
   
   <!-- 奖励网格 -->
   <div>
@@ -126,34 +117,25 @@
 </section>
 
 <!-- 确认弹窗 -->
-{#if showConfirm}
-  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-40 animate-fade-in">
-    <div class="bg-white rounded-2xl p-6 w-80 max-w-[90%] space-y-4 animate-slide-up">
+{#if showConfirm && current}
+  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-40 animate-fade-in" on:click={cancel}>
+    <div class="bg-white rounded-2xl p-6 w-80 max-w-[90%] space-y-4 animate-slide-up" on:click|stopPropagation>
       <div class="font-semibold text-xl">确认兑换</div>
-      <div class="text-gray-700">{current?.title}</div>
-      <div class="text-2xl font-bold text-rose-500">-{current?.cost}</div>
-      
-      <div class="space-y-2">
-        <label for="reason-select" class="text-sm font-medium">选择理由</label>
-        <select id="reason-select" class="w-full border-2 rounded-lg p-3 text-base" bind:value={selectedReason}>
-          {#each reasons as r}
-            <option value={r.code}>{r.title}</option>
-          {/each}
-        </select>
-      </div>
+      <div class="text-gray-700 text-lg">{current.title}</div>
+      <div class="text-3xl font-bold text-rose-500">-{current.cost} 积分</div>
       
       <div class="flex gap-3 pt-2">
         <button 
-          class="flex-1 px-4 py-3 border-2 rounded-xl font-medium touch-feedback" 
+          class="flex-1 px-4 py-3 border-2 rounded-xl font-medium hover:bg-gray-50 transition-colors" 
           on:click={cancel}
         >
           取消
         </button>
         <button 
-          class="flex-1 px-4 py-3 rounded-xl bg-rose-500 text-white font-medium touch-feedback" 
+          class="flex-1 px-4 py-3 rounded-xl bg-rose-500 text-white font-medium hover:bg-rose-600 transition-colors" 
           on:click={confirmSpend}
         >
-          确认
+          确认兑换
         </button>
       </div>
     </div>

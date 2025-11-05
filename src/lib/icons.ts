@@ -99,6 +99,7 @@ export const iconMap: Record<string, any> = {
   'history': Clock,
   'clock': Clock,
   'settings': Settings,
+  'alert': AlertCircle,
   
   // 通用
   'plus': Plus,
@@ -107,7 +108,6 @@ export const iconMap: Record<string, any> = {
   'x': X,
   'close': X,
   'chevron-right': ChevronRight,
-  'alert': AlertCircle,
   'info': Info
 };
 

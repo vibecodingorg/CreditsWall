@@ -1,92 +1,222 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
-  import { addTransaction, getBalance } from '$lib/db/ledger';
-  import { listTasks } from '$lib/db/dexie';
+  import { listTasks, listPenaltyRules, ensureDefaultChild, getChildStats, getTodayCompletedTasks, completeTask, applyPenalty, type TaskTemplate, type PenaltyRule } from '$lib/db/dexie';
   import TaskCard from '$lib/components/TaskCard.svelte';
   import SuccessFeedback from '$lib/components/SuccessFeedback.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import PointsCard from '$lib/components/PointsCard.svelte';
   
+  // 统计信息
   let balance = 0;
-  async function refresh() { balance = await getBalance(); }
+  let totalEarned = 0;
+  let totalSpent = 0;
+  let totalPenalty = 0;
+  let childId = '';
   
-  onMount(() => {
-    refresh();
-    const handler = () => { refresh(); };
-    window.addEventListener('ledger:changed', handler);
-    return () => window.removeEventListener('ledger:changed', handler);
-  });
+  // Tab 状态 (移动端)
+  let activeTab: 'tasks' | 'penalties' = 'tasks';
+  
+  // 任务和扣分项
+  let tasks: (TaskTemplate & { completed?: boolean })[] = [];
+  let penalties: PenaltyRule[] = [];
+  let completedTaskIds: Set<string> = new Set();
+  
+  // 确认对话框状态
+  let showConfirm = false;
+  let confirmTitle = '';
+  let confirmMessage = '';
+  let confirmAction: (() => void) | null = null;
   
   // 成功反馈状态
   let showSuccess = false;
   let lastPoints = 0;
+  let successType: 'earn' | 'spend' | 'success' = 'earn';
   
-  async function add(points: number, reason_code: string) {
-    await addTransaction({ type: 'issue', points, reason_code, reason_category: 'study', created_by: 'child' });
+  async function refresh() {
+    const child = await ensureDefaultChild();
+    childId = child.id;
     
-    // 显示成功动画
-    lastPoints = points;
+    const stats = await getChildStats(childId);
+    balance = stats.balance;
+    totalEarned = stats.totalEarned;
+    totalSpent = stats.totalSpent;
+    totalPenalty = stats.totalPenalty;
+    
+    // 加载今日完成状态
+    completedTaskIds = await getTodayCompletedTasks(childId);
+    
+    // 加载任务
+    const taskList = await listTasks();
+    tasks = taskList
+      .filter(t => t.active === 1)
+      .map(t => ({
+        ...t,
+        completed: completedTaskIds.has(t.id) && t.type === 'daily'
+      }))
+      .filter(t => !(t.type === 'single' && completedTaskIds.has(t.id))); // 单次任务完成后隐藏
+    
+    // 加载扣分项
+    const penaltyList = await listPenaltyRules();
+    penalties = penaltyList.filter(p => p.active === 1);
+  }
+  
+  onMount(() => {
+    refresh();
+  });
+  
+  // 长按完成任务
+  function handleTaskLongPress(task: TaskTemplate) {
+    if (task.completed) return; // 每日任务已完成
+    
+    confirmTitle = '确认完成任务';
+    confirmMessage = `完成「${task.title}」可获得 +${task.points} 积分`;
+    confirmAction = () => handleCompleteTask(task);
+    showConfirm = true;
+  }
+  
+  async function handleCompleteTask(task: TaskTemplate) {
+    await completeTask(childId, task.id, task.points);
+    
+    lastPoints = task.points;
+    successType = 'earn';
     showSuccess = true;
     
     await refresh();
   }
   
-  type Task = { title: string; points: number; code: string; color: string; icon?: string };
-  let tasks: Task[] = [];
-  
-  async function loadTasks() {
-    const list = await listTasks();
-    const actives = list.filter(t => t.active === 1);
-    if (actives.length) {
-      tasks = actives.map(t => ({ 
-        title: t.title, 
-        points: t.points, 
-        code: t.title, 
-        color: 'bg-green-500',
-        icon: t.icon || null
-      }));
-    } else {
-      // 默认任务带图标
-      tasks = [
-        { title: '刷牙', points: 5, color: 'bg-green-500', code: 'health.brushing', icon: 'sparkles' },
-        { title: '作业', points: 5, color: 'bg-blue-500', code: 'study.homework', icon: 'book' },
-        { title: '收纳', points: 3, color: 'bg-purple-500', code: 'chores.cleanroom', icon: 'clean' },
-        { title: '运动', points: 3, color: 'bg-orange-500', code: 'health.exercise', icon: 'bike' }
-      ];
-    }
+  // 长按扣分
+  function handlePenaltyLongPress(penalty: PenaltyRule) {
+    const points = penalty.mode === 'fixed' ? penalty.value : Math.floor(balance * penalty.value / 100);
+    
+    confirmTitle = '确认扣分';
+    confirmMessage = `「${penalty.title}」将扣除 -${points} 积分`;
+    confirmAction = () => handleApplyPenalty(penalty, points);
+    showConfirm = true;
   }
   
-  onMount(loadTasks);
+  async function handleApplyPenalty(penalty: PenaltyRule, points: number) {
+    await applyPenalty(childId, penalty.id, points, penalty.title);
+    
+    lastPoints = points;
+    successType = 'spend';
+    showSuccess = true;
+    
+    await refresh();
+  }
 </script>
 
 <section class="p-6 space-y-6">
-  <!-- 余额卡片 -->
-  <div class="bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl p-6 shadow-lg">
-    <div class="text-sm opacity-90 mb-1">{$t('home.balance')}</div>
-    <div class="text-5xl font-bold">{balance}</div>
+  <!-- 积分卡片 -->
+  <PointsCard 
+    {balance} 
+    {totalEarned} 
+    {totalSpent} 
+    {totalPenalty} 
+    variant="default" 
+  />
+  
+  <!-- 移动端 Tab 切换 (小于 768px) -->
+  <div class="md:hidden flex gap-2 mb-4">
+    <button
+      class="flex-1 py-3 px-4 rounded-xl font-semibold transition-all"
+      class:bg-green-500={activeTab === 'tasks'}
+      class:text-white={activeTab === 'tasks'}
+      class:bg-gray-100={activeTab !== 'tasks'}
+      class:text-gray-600={activeTab !== 'tasks'}
+      on:click={() => activeTab = 'tasks'}
+    >
+      ✅ 任务打卡 ({tasks.length})
+    </button>
+    <button
+      class="flex-1 py-3 px-4 rounded-xl font-semibold transition-all"
+      class:bg-rose-500={activeTab === 'penalties'}
+      class:text-white={activeTab === 'penalties'}
+      class:bg-gray-100={activeTab !== 'penalties'}
+      class:text-gray-600={activeTab !== 'penalties'}
+      on:click={() => activeTab = 'penalties'}
+    >
+      ⚠️ 扣分项 ({penalties.length})
+    </button>
   </div>
   
-  <!-- 任务网格 -->
-  <div>
-    <h2 class="text-lg font-semibold mb-3">{$t('home.todayTasks')}</h2>
-    <div class="grid grid-cols-2 gap-4">
-      {#each tasks as tsk}
-        <TaskCard
-          title={tsk.title}
-          points={tsk.points}
-          icon={tsk.icon}
-          color={tsk.color}
-          onClick={() => add(tsk.points, tsk.code)}
-        />
-      {/each}
+  <!-- 响应式布局：iPad 两栏 / iPhone 单栏 -->
+  <div class="grid md:grid-cols-2 gap-6">
+    <!-- 任务栏 -->
+    <div class:hidden={activeTab !== 'tasks'} class:block={activeTab === 'tasks'} class="md:block h-full">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span class="text-2xl">📝</span>
+          <span>今日任务</span>
+        </h2>
+        <span class="px-3 py-1 bg-green-100 text-green-700 text-sm font-semibold rounded-full">{tasks.length}</span>
+      </div>
+      <div class="space-y-3 h-full">
+        {#if tasks.length === 0}
+          <div class="text-center py-12 text-gray-400">
+            <div class="text-5xl mb-3">📋</div>
+            <div>暂无任务</div>
+          </div>
+        {:else}
+          {#each tasks as task}
+            <TaskCard
+              title={task.title}
+              points={task.points}
+              icon={task.icon || 'star'}
+              color="bg-green-500"
+              completed={task.completed}
+              completedText="已完成"
+              onClick={() => handleTaskLongPress(task)}
+            />
+          {/each}
+        {/if}
+      </div>
+    </div>
+    
+    <!-- 扣分栏 -->
+    <div class:hidden={activeTab !== 'penalties'} class:block={activeTab === 'penalties'} class="md:block h-full">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold flex items-center gap-2">
+          <span class="text-2xl">⚠️</span>
+          <span>扣分项</span>
+        </h2>
+        <span class="px-3 py-1 bg-rose-100 text-rose-700 text-sm font-semibold rounded-full">{penalties.length}</span>
+      </div>
+      <div class="space-y-3 h-full">
+        {#if penalties.length === 0}
+          <div class="text-center py-12 text-gray-400">
+            <div class="text-5xl mb-3">🚫</div>
+            <div>暂无扣分项</div>
+          </div>
+        {:else}
+          {#each penalties as penalty}
+            <TaskCard
+              title={penalty.title}
+              points={penalty.mode === 'fixed' ? -penalty.value : -penalty.value}
+              icon={penalty.icon || 'alert'}
+              color="bg-rose-500"
+              onClick={() => handlePenaltyLongPress(penalty)}
+            />
+          {/each}
+        {/if}
+      </div>
     </div>
   </div>
 </section>
 
+<!-- 确认对话框 -->
+<ConfirmDialog
+  bind:show={showConfirm}
+  title={confirmTitle}
+  message={confirmMessage}
+  onConfirm={() => confirmAction && confirmAction()}
+/>
+
 <!-- 成功反馈动画 -->
 <SuccessFeedback
   bind:show={showSuccess}
-  type="earn"
-  message="太棒了！"
+  type={successType}
+  message={successType === 'earn' ? '太棒了！' : '已扣分'}
   points={lastPoints}
   onClose={() => { showSuccess = false; }}
 />
