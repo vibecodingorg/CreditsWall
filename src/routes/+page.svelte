@@ -76,7 +76,7 @@
   }
   
   async function handleCompleteTask(task: TaskTemplate) {
-    await completeTask(childId, task.id, task.points);
+    await completeTask(childId, task.id, task.points, task.title);
     
     lastPoints = task.points;
     successType = 'earn';

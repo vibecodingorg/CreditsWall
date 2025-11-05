@@ -1,15 +1,11 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
-  import { listReasonsMerged } from '$lib/db/reasons';
-  import { addLocalReason } from '$lib/db/reasons';
-  import { deleteLocalReason } from '$lib/db/reasons';
-  import { listChildren, addChild, listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward } from '$lib/db/dexie';
-  import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Tag, Settings2 as Settings } from 'lucide-svelte';
+  import { listChildren, addChild, listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward, deletePenaltyRule } from '$lib/db/dexie';
+  import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Settings2 as Settings } from 'lucide-svelte';
   import IconPicker from '$lib/components/IconPicker.svelte';
+  import { getIcon } from '$lib/icons';
   
-  let reasons: { id?: string; code: string; title: string; category?: string }[] = [];
-  let newReason = { code: '', title: '', category: 'custom' };
   let children: { id: string; name: string; color?: string; avatar?: string }[] = [];
   let newChild = { name: '', color: '#22c55e' };
   let tasks: { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number }[] = [];
@@ -21,20 +17,11 @@
   let penalties: { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: string; rounding?: string; active: number }[] = [];
   let newPenalty = { title: '', icon: '', mode: 'fixed' as 'fixed'|'percent', value: 5, basis: 'current_balance', rounding: 'down' };
   let showPenaltyIconPicker = false;
-  async function refreshReasons() { reasons = await listReasonsMerged(); }
   async function refreshChildren() { children = await listChildren(); }
   async function refreshTasks() { tasks = await listTasks(); }
   async function refreshRewards() { rewards = await listRewards(); }
   async function refreshPenalties() { penalties = await listPenaltyRules(); }
-  onMount(async () => { await refreshReasons(); await refreshChildren(); await refreshTasks(); await refreshRewards(); await refreshPenalties(); });
-  async function addReason() {
-    if (!newReason.code || !newReason.title) return alert('请填写代码与标题');
-    await addLocalReason(newReason);
-    newReason = { code: '', title: '', category: 'custom' };
-    await refreshReasons();
-    alert('已新增理由');
-  }
-  function tag(r: any) { return r.category || (r.is_preset ? 'preset' : 'custom'); }
+  onMount(async () => { await refreshChildren(); await refreshTasks(); await refreshRewards(); await refreshPenalties(); });
   async function addChildAction() {
     if (!newChild.name) return alert('请输入孩子名字');
     await addChild({ name: newChild.name, color: newChild.color });
@@ -79,6 +66,11 @@
   }
   async function togglePenalty(id: string, active: boolean) {
     await togglePenaltyRuleActive(id, active);
+    await refreshPenalties();
+  }
+  async function removePenalty(id: string) {
+    if (!confirm('确定删除该扣分规则吗？')) return;
+    await deletePenaltyRule(id);
     await refreshPenalties();
   }
 </script>
@@ -139,16 +131,27 @@
             <option value="daily">每日循环</option>
             <option value="single">单次任务</option>
           </select>
-          <button class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2" on:click={() => showTaskIconPicker = !showTaskIconPicker}>
-            {newTask.icon ? '✨' : '➕'} 图标
+          <button type="button" class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2" on:click={() => showTaskIconPicker = !showTaskIconPicker}>
+            {#if newTask.icon && getIcon(newTask.icon)?.component}
+              <svelte:component this={getIcon(newTask.icon).component} size={18} />
+            {:else}
+              ➕
+            {/if}
+            图标
           </button>
-          <button class="px-4 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 flex items-center gap-2" on:click={addTaskAction}>
+          <button type="button" class="px-4 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 flex items-center gap-2" on:click={addTaskAction}>
             <Plus size={18} /> 添加
           </button>
         </div>
         {#if showTaskIconPicker}
           <div class="border-2 rounded-lg p-3">
-            <IconPicker selected={newTask.icon} onSelect={(icon) => { newTask.icon = icon; showTaskIconPicker = false; }} />
+            <IconPicker 
+              selected={newTask.icon} 
+              onSelect={(icon) => { 
+                newTask = { ...newTask, icon }; 
+                showTaskIconPicker = false; 
+              }} 
+            />
           </div>
         {/if}
       </div>
@@ -156,11 +159,17 @@
       <div class="space-y-2">
         {#each tasks as t}
           <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-            <div class="flex-1 flex items-center gap-2">
-              {#if t.icon}
-                <span class="text-2xl">✨</span>
-              {/if}
-              <div>
+            <div class="flex items-center gap-3 flex-1">
+              <!-- 图标 -->
+              <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
+                {#if t.icon && getIcon(t.icon)?.component}
+                  <svelte:component this={getIcon(t.icon).component} size={20} class="text-green-600" />
+                {:else}
+                  <Sparkles size={20} class="text-green-600" />
+                {/if}
+              </div>
+              <!-- 信息 -->
+              <div class="flex-1">
                 <div class="font-medium">{t.title}</div>
                 <div class="text-xs text-gray-500">
                   <span class="text-green-600">+{t.points}</span>
@@ -168,12 +177,13 @@
                 </div>
               </div>
             </div>
+            <!-- 操作 -->
             <div class="flex items-center gap-2">
               <label class="flex items-center gap-1 text-sm cursor-pointer">
                 <input type="checkbox" checked={t.active===1} on:change={(e) => toggleTask(t.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
                 <span>启用</span>
               </label>
-              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" on:click={() => removeTask(t.id)}>
+              <button type="button" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" on:click={() => removeTask(t.id)}>
                 <Trash2 size={16} />
               </button>
             </div>
@@ -197,16 +207,27 @@
         <input class="border-2 rounded-lg p-3" placeholder="奖励标题" bind:value={newReward.title} />
         <div class="flex gap-2">
           <input class="border-2 rounded-lg p-3 w-20" type="number" min="1" bind:value={newReward.cost_points} placeholder="消耗" />
-          <button class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2 flex-1" on:click={() => showRewardIconPicker = !showRewardIconPicker}>
-            {newReward.icon ? '✨' : '➕'} 图标
+          <button type="button" class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2 flex-1" on:click={() => showRewardIconPicker = !showRewardIconPicker}>
+            {#if newReward.icon && getIcon(newReward.icon)?.component}
+              <svelte:component this={getIcon(newReward.icon).component} size={18} />
+            {:else}
+              ➕
+            {/if}
+            图标
           </button>
-          <button class="px-4 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 flex items-center gap-2" on:click={addRewardAction}>
+          <button type="button" class="px-4 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 flex items-center gap-2" on:click={addRewardAction}>
             <Plus size={18} /> 添加
           </button>
         </div>
         {#if showRewardIconPicker}
           <div class="border-2 rounded-lg p-3">
-            <IconPicker selected={newReward.icon} onSelect={(icon) => { newReward.icon = icon; showRewardIconPicker = false; }} />
+            <IconPicker 
+              selected={newReward.icon} 
+              onSelect={(icon) => { 
+                newReward = { ...newReward, icon }; 
+                showRewardIconPicker = false; 
+              }} 
+            />
           </div>
         {/if}
       </div>
@@ -214,21 +235,28 @@
       <div class="space-y-2">
         {#each rewards as r}
           <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-            <div class="flex-1 flex items-center gap-2">
-              {#if r.icon}
-                <span class="text-2xl">🎁</span>
-              {/if}
-              <div>
+            <div class="flex items-center gap-3 flex-1">
+              <!-- 图标 -->
+              <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
+                {#if r.icon && getIcon(r.icon)?.component}
+                  <svelte:component this={getIcon(r.icon).component} size={20} class="text-orange-600" />
+                {:else}
+                  <Gift size={20} class="text-orange-600" />
+                {/if}
+              </div>
+              <!-- 信息 -->
+              <div class="flex-1">
                 <div class="font-medium">{r.title}</div>
-                <div class="text-xs text-rose-600">-{r.cost_points}</div>
+                <div class="text-xs text-rose-600">-{r.cost_points} 积分</div>
               </div>
             </div>
+            <!-- 操作 -->
             <div class="flex items-center gap-2">
               <label class="flex items-center gap-1 text-sm cursor-pointer">
                 <input type="checkbox" checked={r.active===1} on:change={(e) => toggleReward(r.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
                 <span>上架</span>
               </label>
-              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" on:click={() => removeReward(r.id)}>
+              <button type="button" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" on:click={() => removeReward(r.id)}>
                 <Trash2 size={16} />
               </button>
             </div>
@@ -258,16 +286,27 @@
           <input class="border-2 rounded-lg p-3 w-20" type="number" min="1" bind:value={newPenalty.value} placeholder="值" />
         </div>
         <div class="flex gap-2">
-          <button class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2 flex-1" on:click={() => showPenaltyIconPicker = !showPenaltyIconPicker}>
-            {newPenalty.icon ? '✨' : '➕'} 图标
+          <button type="button" class="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium flex items-center gap-2 flex-1" on:click={() => showPenaltyIconPicker = !showPenaltyIconPicker}>
+            {#if newPenalty.icon && getIcon(newPenalty.icon)?.component}
+              <svelte:component this={getIcon(newPenalty.icon).component} size={18} />
+            {:else}
+              ➕
+            {/if}
+            图标
           </button>
-          <button class="px-4 py-3 bg-rose-500 text-white rounded-lg font-medium hover:bg-rose-600 flex items-center gap-2" on:click={addPenaltyAction}>
+          <button type="button" class="px-4 py-3 bg-rose-500 text-white rounded-lg font-medium hover:bg-rose-600 flex items-center gap-2" on:click={addPenaltyAction}>
             <Plus size={18} /> 添加
           </button>
         </div>
         {#if showPenaltyIconPicker}
           <div class="border-2 rounded-lg p-3">
-            <IconPicker selected={newPenalty.icon} onSelect={(icon) => { newPenalty.icon = icon; showPenaltyIconPicker = false; }} />
+            <IconPicker 
+              selected={newPenalty.icon} 
+              onSelect={(icon) => { 
+                newPenalty = { ...newPenalty, icon }; 
+                showPenaltyIconPicker = false; 
+              }} 
+            />
           </div>
         {/if}
       </div>
@@ -275,57 +314,33 @@
       <div class="space-y-2">
         {#each penalties as p}
           <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-            <div class="flex-1 flex items-center gap-2">
-              {#if p.icon}
-                <span class="text-2xl">⚠️</span>
-              {/if}
-              <div>
+            <div class="flex items-center gap-3 flex-1">
+              <!-- 图标 -->
+              <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center flex-shrink-0">
+                {#if p.icon && getIcon(p.icon)?.component}
+                  <svelte:component this={getIcon(p.icon).component} size={20} class="text-rose-600" />
+                {:else}
+                  <AlertCircle size={20} class="text-rose-600" />
+                {/if}
+              </div>
+              <!-- 信息 -->
+              <div class="flex-1">
                 <div class="font-medium">{p.title}</div>
                 <div class="text-xs text-rose-600">
-                  {p.mode === 'fixed' ? `-${p.value}` : `-${p.value}%`}
+                  {p.mode === 'fixed' ? `-${p.value} 积分` : `-${p.value}%`}
                 </div>
               </div>
             </div>
-            <label class="flex items-center gap-1 text-sm cursor-pointer">
-              <input type="checkbox" checked={p.active===1} on:change={(e) => togglePenalty(p.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
-              <span>启用</span>
-            </label>
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-  
-  <!-- 理由管理 -->
-  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-        <Tag class="text-purple-600" size={22} />
-      </div>
-      <h3 class="text-lg font-semibold">{$t('settings.reasons')}</h3>
-    </div>
-    
-    <div class="space-y-3">
-      <div class="flex gap-2">
-        <input class="border-2 rounded-lg p-3 flex-1" placeholder="代码 (如 study.homework)" bind:value={newReason.code} />
-        <input class="border-2 rounded-lg p-3 flex-1" placeholder="标题" bind:value={newReason.title} />
-        <button class="px-4 py-3 bg-purple-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addReason}>
-          <Plus size={18} />
-        </button>
-      </div>
-      
-      <div class="space-y-2 max-h-64 overflow-y-auto">
-        {#each reasons as r}
-          <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-            <div class="flex-1 min-w-0">
-              <div class="font-medium truncate">{r.title}</div>
-              <div class="text-xs text-gray-500 truncate">{r.code} · {tag(r)}</div>
-            </div>
-            {#if r.id}
-              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg touch-feedback flex-shrink-0" on:click={async () => { await deleteLocalReason(r.id!); await refreshReasons(); }}>
+            <!-- 操作 -->
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1 text-sm cursor-pointer">
+                <input type="checkbox" checked={p.active===1} on:change={(e) => togglePenalty(p.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
+                <span>启用</span>
+              </label>
+              <button type="button" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" on:click={() => removePenalty(p.id)}>
                 <Trash2 size={16} />
               </button>
-            {/if}
+            </div>
           </div>
         {/each}
       </div>

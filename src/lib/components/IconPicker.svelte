@@ -45,7 +45,6 @@
     { name: 'cookie', component: Cookie, label: '🍪 饼干' },
     { name: 'pizza', component: Pizza, label: '🍕 披萨' },
     { name: 'dumbbell', component: Dumbbell, label: '🏋️ 哑铃' },
-    { name: 'football', component: Football, label: '⚽ 足球' },
     { name: 'graduation', component: GraduationCap, label: '🎓 毕业帽' },
     { name: 'pencil', component: Pencil, label: '✏️ 铅笔' },
     { name: 'bookmark', component: BookMarked, label: '📖 书签' },

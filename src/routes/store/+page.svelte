@@ -36,22 +36,12 @@
   async function loadRewards() {
     const rw = await listRewards();
     const actives = rw.filter(r => r.active === 1);
-    if (actives.length) {
-      items = actives.map((r, i) => ({ 
-        title: r.title, 
-        cost: r.cost_points, 
-        color: i % 2 ? 'bg-yellow-500' : 'bg-rose-500',
-        icon: r.icon || null
-      }));
-    } else {
-      // 默认奖励带图标
-      items = [
-        { title: '棒棒糖', cost: 5, color: 'bg-rose-500', icon: 'candy' },
-        { title: '动画片30分钟', cost: 10, color: 'bg-yellow-500', icon: 'tv' },
-        { title: '冰淇淋', cost: 8, color: 'bg-pink-500', icon: 'ice-cream' },
-        { title: '游戏时间', cost: 15, color: 'bg-purple-500', icon: 'game' }
-      ];
-    }
+    items = actives.map((r, i) => ({ 
+      title: r.title, 
+      cost: r.cost_points, 
+      color: i % 2 ? 'bg-yellow-500' : 'bg-rose-500',
+      icon: r.icon || null
+    }));
   }
   
   onMount(loadRewards);

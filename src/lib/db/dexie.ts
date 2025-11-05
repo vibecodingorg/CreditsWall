@@ -55,6 +55,11 @@ export async function togglePenaltyRuleActive(id: string, active: boolean): Prom
   await (db as any).penalties.update(id, { active: active ? 1 : 0 });
 }
 
+export async function deletePenaltyRule(id: string): Promise<void> {
+  // @ts-ignore
+  await (db as any).penalties.delete(id);
+}
+
 export async function listChildren(): Promise<Child[]> {
   return db.children.orderBy('created_at').toArray();
 }
@@ -80,6 +85,7 @@ export interface Transaction {
   rule_id?: string; calc_basis?: 'current_balance'|'today_earned'|'task_points'; calc_snapshot?: any;
   reason_id?: string; reason_code?: string; reason_category?: string; tags?: string[]; notes?: string
   sync_status?: 'pending'|'synced'|'error'; server_version?: number;
+  reversed?: boolean; reversed_by?: string; // 标记是否已撤销，以及撤销交易的ID
 }
 export interface ReasonCatalog { id: string; code: string; title: string; category: string; is_preset: number; active: number; created_at: string }
 
@@ -180,21 +186,23 @@ export async function getTodayCompletedTasks(childId: string): Promise<Set<strin
 }
 
 // 完成任务（添加交易记录并更新统计）
-export async function completeTask(childId: string, taskId: string, points: number): Promise<Transaction> {
+export async function completeTask(childId: string, taskId: string, points: number, title: string): Promise<Transaction> {
   const tx: Transaction = {
     id: crypto.randomUUID(),
     child_id: childId,
     type: 'task_complete',
-    points: points,
+    points: Math.abs(points),
     ref_id: taskId,
     idempotency_key: `task-${taskId}-${Date.now()}`,
     created_at: new Date().toISOString(),
     created_by: 'child',
-    sync_status: 'pending'
+    notes: `完成 ${title}`,
+    sync_status: 'pending',
+    reversed: false
   };
   
   await db.transactions.add(tx);
-  await updateChildStats(childId, points, 0);
+  await updateChildStats(childId, Math.abs(points), 0, 0);
   
   return tx;
 }
@@ -211,7 +219,8 @@ export async function applyPenalty(childId: string, penaltyId: string, points: n
     created_at: new Date().toISOString(),
     created_by: 'child',
     notes: title,
-    sync_status: 'pending'
+    sync_status: 'pending',
+    reversed: false
   };
   
   await db.transactions.add(tx);
@@ -232,8 +241,9 @@ export async function redeemReward(childId: string, rewardId: string, cost: numb
     idempotency_key: `reward-${rewardId}-${Date.now()}`,
     created_at: new Date().toISOString(),
     created_by: 'child',
-    notes: title,
-    sync_status: 'pending'
+    notes: `兑换 ${title}`,
+    sync_status: 'pending',
+    reversed: false
   };
   
   await db.transactions.add(tx);
@@ -241,4 +251,61 @@ export async function redeemReward(childId: string, rewardId: string, cost: numb
   await updateChildStats(childId, 0, Math.abs(cost), 0);
   
   return tx;
+}
+
+// 获取交易列表（按时间倒序）
+export async function listTransactions(childId: string): Promise<Transaction[]> {
+  return db.transactions
+    .where('child_id')
+    .equals(childId)
+    .reverse()
+    .sortBy('created_at');
+}
+
+// 撤销交易
+export async function reverseTransaction(childId: string, originalTx: Transaction): Promise<Transaction> {
+  if (originalTx.reversed) {
+    throw new Error('该交易已被撤销');
+  }
+  
+  if (originalTx.type === 'reverse') {
+    throw new Error('撤销记录不能再次撤销');
+  }
+  
+  // 创建撤销交易
+  const reverseTx: Transaction = {
+    id: crypto.randomUUID(),
+    child_id: childId,
+    type: 'reverse',
+    points: -originalTx.points, // 取反
+    ref_id: originalTx.id, // 引用原交易
+    idempotency_key: `reverse-${originalTx.id}`,
+    created_at: new Date().toISOString(),
+    created_by: 'child',
+    notes: `撤销 ${originalTx.notes || ''}`,
+    sync_status: 'pending',
+    reversed: false
+  };
+  
+  await db.transactions.add(reverseTx);
+  
+  // 标记原交易为已撤销
+  await db.transactions.update(originalTx.id, {
+    reversed: true,
+    reversed_by: reverseTx.id
+  });
+  
+  // 更新统计：根据原交易类型撤销相应的统计
+  if (originalTx.type === 'task_complete') {
+    // 撤销任务完成：减少 total_earned
+    await updateChildStats(childId, -Math.abs(originalTx.points), 0, 0);
+  } else if (originalTx.type === 'spend') {
+    // 撤销兑换：减少 total_spent
+    await updateChildStats(childId, 0, -Math.abs(originalTx.points), 0);
+  } else if (originalTx.type === 'penalty') {
+    // 撤销扣分：减少 total_penalty
+    await updateChildStats(childId, 0, 0, -Math.abs(originalTx.points));
+  }
+  
+  return reverseTx;
 }

@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS transaction (
   reason_category TEXT,
   tags TEXT,
   notes TEXT,
+  reversed INTEGER DEFAULT 0,
+  reversed_by TEXT,
   FOREIGN KEY(child_id) REFERENCES child(id)
 );
 
