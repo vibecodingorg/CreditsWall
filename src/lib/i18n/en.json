@@ -1,0 +1,23 @@
+{
+  "app.title": "Kids Points",
+  "nav.home": "Home",
+  "nav.store": "Store",
+  "nav.history": "History",
+  "nav.settings": "Settings",
+  "home.balance": "Balance",
+  "home.todayTasks": "Today's Tasks",
+  "store.title": "Reward Store",
+  "store.longpress": "Long press to confirm",
+  "history.title": "Transaction History",
+  "settings.title": "Parent Settings",
+  "settings.pin": "Parent PIN",
+  "settings.children": "Children Management",
+  "settings.tasks": "Task Templates",
+  "settings.rewards": "Reward Store",
+  "settings.reasons": "Reason Catalog",
+  "settings.penalties": "Penalty Rules",
+  "actions.generateReport": "Generate Report",
+  "actions.share": "Share",
+  "lang.zh": "Chinese",
+  "lang.en": "English"
+}

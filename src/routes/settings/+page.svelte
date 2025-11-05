@@ -1,0 +1,277 @@
+<script lang="ts">
+  import { t } from 'svelte-i18n';
+  import { onMount } from 'svelte';
+  import { listReasonsMerged } from '$lib/db/reasons';
+  import { addLocalReason } from '$lib/db/reasons';
+  import { deleteLocalReason } from '$lib/db/reasons';
+  import { listChildren, addChild, listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward } from '$lib/db/dexie';
+  import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Tag, Settings2 as Settings } from 'lucide-svelte';
+  
+  let reasons: { id?: string; code: string; title: string; category?: string }[] = [];
+  let newReason = { code: '', title: '', category: 'custom' };
+  let children: { id: string; name: string; color?: string; avatar?: string }[] = [];
+  let newChild = { name: '', color: '#22c55e' };
+  let tasks: { id: string; title: string; points: number; active: number }[] = [];
+  let newTask = { title: '', points: 5 };
+  let rewards: { id: string; title: string; cost_points: number; active: number }[] = [];
+  let newReward = { title: '', cost_points: 5 };
+  let penalties: { id: string; title: string; mode: 'fixed'|'percent'; value: number; basis?: string; rounding?: string; active: number }[] = [];
+  let newPenalty = { title: '', mode: 'fixed' as 'fixed'|'percent', value: 5, basis: 'current_balance', rounding: 'down' };
+  async function refreshReasons() { reasons = await listReasonsMerged(); }
+  async function refreshChildren() { children = await listChildren(); }
+  async function refreshTasks() { tasks = await listTasks(); }
+  async function refreshRewards() { rewards = await listRewards(); }
+  async function refreshPenalties() { penalties = await listPenaltyRules(); }
+  onMount(async () => { await refreshReasons(); await refreshChildren(); await refreshTasks(); await refreshRewards(); await refreshPenalties(); });
+  async function addReason() {
+    if (!newReason.code || !newReason.title) return alert('请填写代码与标题');
+    await addLocalReason(newReason);
+    newReason = { code: '', title: '', category: 'custom' };
+    await refreshReasons();
+    alert('已新增理由');
+  }
+  function tag(r: any) { return r.category || (r.is_preset ? 'preset' : 'custom'); }
+  async function addChildAction() {
+    if (!newChild.name) return alert('请输入孩子名字');
+    await addChild({ name: newChild.name, color: newChild.color });
+    newChild = { name: '', color: '#22c55e' };
+    await refreshChildren();
+  }
+  async function addTaskAction() {
+    if (!newTask.title || !newTask.points) return alert('请输入任务标题与积分');
+    await addTask({ title: newTask.title, points: Number(newTask.points) });
+    newTask = { title: '', points: 5 };
+    await refreshTasks();
+  }
+  async function toggleTask(id: string, active: boolean) {
+    await toggleTaskActive(id, active);
+    await refreshTasks();
+  }
+  async function removeTask(id: string) {
+    if (!confirm('确定删除该任务吗？')) return;
+    await deleteTask(id);
+    await refreshTasks();
+  }
+  async function addRewardAction() {
+    if (!newReward.title || !newReward.cost_points) return alert('请输入奖励标题与消耗积分');
+    await addReward({ title: newReward.title, cost_points: Number(newReward.cost_points) });
+    newReward = { title: '', cost_points: 5 };
+    await refreshRewards();
+  }
+  async function toggleReward(id: string, active: boolean) {
+    await toggleRewardActive(id, active);
+    await refreshRewards();
+  }
+  async function removeReward(id: string) {
+    if (!confirm('确定删除该奖励吗？')) return;
+    await deleteReward(id);
+    await refreshRewards();
+  }
+  async function addPenaltyAction() {
+    if (!newPenalty.title || !newPenalty.value) return alert('请输入规则标题与数值');
+    await addPenaltyRule({ title: newPenalty.title, mode: newPenalty.mode, value: Number(newPenalty.value), basis: newPenalty.basis as any, rounding: newPenalty.rounding as any });
+    newPenalty = { title: '', mode: 'fixed', value: 5, basis: 'current_balance', rounding: 'down' };
+    await refreshPenalties();
+  }
+  async function togglePenalty(id: string, active: boolean) {
+    await togglePenaltyRuleActive(id, active);
+    await refreshPenalties();
+  }
+</script>
+
+<section class="p-6 space-y-6">
+  <h2 class="text-2xl font-bold flex items-center gap-2">
+    <Settings size={28} class="text-gray-700" />
+    {$t('settings.title')}
+  </h2>
+  
+  <!-- 孩子管理 -->
+  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <Users class="text-blue-600" size={22} />
+      </div>
+      <h3 class="text-lg font-semibold">{$t('settings.children')}</h3>
+    </div>
+    
+    <div class="space-y-3">
+      <div class="flex gap-2">
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="孩子名字" bind:value={newChild.name} />
+        <input class="border-2 rounded-lg p-3 w-16" type="color" bind:value={newChild.color} />
+        <button class="px-4 py-3 bg-blue-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addChildAction}>
+          <Plus size={18} />
+        </button>
+      </div>
+      
+      <div class="space-y-2">
+        {#each children as c}
+          <div class="p-3 bg-gray-50 rounded-lg flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full flex-shrink-0" style="background:{c.color || '#999'}"></span>
+            <span class="font-medium">{c.name}</span>
+          </div>
+        {/each}
+        {#if children.length === 0}
+          <p class="text-sm text-gray-400 text-center py-4">暂无孩子</p>
+        {/if}
+      </div>
+    </div>
+  </div>
+  
+  <!-- 任务管理 -->
+  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <Sparkles class="text-green-600" size={22} />
+      </div>
+      <h3 class="text-lg font-semibold">{$t('settings.tasks')}</h3>
+    </div>
+    
+    <div class="space-y-3">
+      <div class="flex gap-2">
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="任务标题" bind:value={newTask.title} />
+        <input class="border-2 rounded-lg p-3 w-20" type="number" min="1" bind:value={newTask.points} placeholder="积分" />
+        <button class="px-4 py-3 bg-green-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addTaskAction}>
+          <Plus size={18} />
+        </button>
+      </div>
+      
+      <div class="space-y-2">
+        {#each tasks as t}
+          <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+            <div class="flex-1">
+              <span class="font-medium">{t.title}</span>
+              <span class="text-sm text-green-600 ml-2">+{t.points}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1 text-sm cursor-pointer">
+                <input type="checkbox" checked={t.active===1} on:change={(e) => toggleTask(t.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
+                <span>启用</span>
+              </label>
+              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg touch-feedback" on:click={() => removeTask(t.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+  
+  <!-- 奖励管理 -->
+  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <Gift class="text-orange-600" size={22} />
+      </div>
+      <h3 class="text-lg font-semibold">{$t('settings.rewards')}</h3>
+    </div>
+    
+    <div class="space-y-3">
+      <div class="flex gap-2">
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="奖励标题" bind:value={newReward.title} />
+        <input class="border-2 rounded-lg p-3 w-20" type="number" min="1" bind:value={newReward.cost_points} placeholder="消耗" />
+        <button class="px-4 py-3 bg-orange-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addRewardAction}>
+          <Plus size={18} />
+        </button>
+      </div>
+      
+      <div class="space-y-2">
+        {#each rewards as r}
+          <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+            <div class="flex-1">
+              <span class="font-medium">{r.title}</span>
+              <span class="text-sm text-rose-600 ml-2">-{r.cost_points}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1 text-sm cursor-pointer">
+                <input type="checkbox" checked={r.active===1} on:change={(e) => toggleReward(r.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
+                <span>上架</span>
+              </label>
+              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg touch-feedback" on:click={() => removeReward(r.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+  
+  <!-- 扣分规则 -->
+  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <AlertCircle class="text-rose-600" size={22} />
+      </div>
+      <h3 class="text-lg font-semibold">{$t('settings.penalties')}</h3>
+    </div>
+    
+    <div class="space-y-3">
+      <div class="grid grid-cols-4 gap-2">
+        <input class="border-2 rounded-lg p-3 col-span-2" placeholder="规则标题" bind:value={newPenalty.title} />
+        <select class="border-2 rounded-lg p-3" bind:value={newPenalty.mode}>
+          <option value="fixed">固定</option>
+          <option value="percent">比例</option>
+        </select>
+        <input class="border-2 rounded-lg p-3" type="number" min="1" bind:value={newPenalty.value} placeholder="值" />
+      </div>
+      <button class="w-full px-4 py-3 bg-rose-500 text-white rounded-lg font-medium touch-feedback flex items-center justify-center gap-2" on:click={addPenaltyAction}>
+        <Plus size={18} />
+        <span>新增规则</span>
+      </button>
+      
+      <div class="space-y-2">
+        {#each penalties as p}
+          <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+            <div class="flex-1">
+              <span class="font-medium">{p.title}</span>
+              <span class="text-sm text-rose-600 ml-2">
+                {p.mode === 'fixed' ? `-${p.value}` : `-${p.value}%`}
+              </span>
+            </div>
+            <label class="flex items-center gap-1 text-sm cursor-pointer">
+              <input type="checkbox" checked={p.active===1} on:change={(e) => togglePenalty(p.id, (e.target as HTMLInputElement).checked)} class="cursor-pointer" />
+              <span>启用</span>
+            </label>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+  
+  <!-- 理由管理 -->
+  <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <Tag class="text-purple-600" size={22} />
+      </div>
+      <h3 class="text-lg font-semibold">{$t('settings.reasons')}</h3>
+    </div>
+    
+    <div class="space-y-3">
+      <div class="flex gap-2">
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="代码 (如 study.homework)" bind:value={newReason.code} />
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="标题" bind:value={newReason.title} />
+        <button class="px-4 py-3 bg-purple-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addReason}>
+          <Plus size={18} />
+        </button>
+      </div>
+      
+      <div class="space-y-2 max-h-64 overflow-y-auto">
+        {#each reasons as r}
+          <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+            <div class="flex-1 min-w-0">
+              <div class="font-medium truncate">{r.title}</div>
+              <div class="text-xs text-gray-500 truncate">{r.code} · {tag(r)}</div>
+            </div>
+            {#if r.id}
+              <button class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg touch-feedback flex-shrink-0" on:click={async () => { await deleteLocalReason(r.id!); await refreshReasons(); }}>
+                <Trash2 size={16} />
+              </button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+</section>

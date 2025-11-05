@@ -1,0 +1,23 @@
+{
+  "app.title": "儿童积分",
+  "nav.home": "主页",
+  "nav.store": "商店",
+  "nav.history": "历史",
+  "nav.settings": "设置",
+  "home.balance": "余额",
+  "home.todayTasks": "今日任务",
+  "store.title": "奖励商店",
+  "store.longpress": "长按以确认消费",
+  "history.title": "流水历史",
+  "settings.title": "家长设置",
+  "settings.pin": "家长PIN",
+  "settings.children": "孩子管理",
+  "settings.tasks": "任务模板",
+  "settings.rewards": "奖励商店",
+  "settings.reasons": "理由目录",
+  "settings.penalties": "扣分规则",
+  "actions.generateReport": "生成战报图片",
+  "actions.share": "分享",
+  "lang.zh": "中文",
+  "lang.en": "英文"
+}
