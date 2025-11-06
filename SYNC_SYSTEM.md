@@ -345,9 +345,9 @@ await db.transactions.bulkAdd(transactions);
 ### 2. 索引优化
 ```sql
 -- 交易查询优化
-CREATE INDEX idx_tx_child_time ON transaction(child_id, created_at);
-CREATE INDEX idx_tx_idem ON transaction(idempotency_key);
-CREATE INDEX idx_tx_reversed ON transaction(reversed, type);
+CREATE INDEX idx_tx_child_time ON transactions(child_id, created_at);
+CREATE INDEX idx_tx_idem ON transactions(idempotency_key);
+CREATE INDEX idx_tx_reversed ON transactions(reversed, type);
 ```
 
 ### 3. 限制数量
@@ -430,3 +430,39 @@ location.reload();
 ✅ **自动同步**：后台自动、智能重试
 ✅ **双向同步**：上传/下载灵活
 ✅ **开发友好**：脚本工具、详细文档
+
+---
+
+## 访问密码与单 child 模式
+
+### 鉴权
+
+- 所有 API 必须携带请求头：`X-Access-Key: <你的访问密码>`。
+- 访问密码通过 Cloudflare Pages 环境变量配置：`ACCESS_KEY`。
+
+### 单 child 模型
+
+- 服务器仅维护一个孩子：`child.id = 'main'`。
+- 所有交易写入 `transactions.child_id = 'main'`。
+
+### 首次初始化流程
+
+1. 首次打开页面，输入访问密码（保存到 localStorage）。
+2. 客户端请求 `/api/sync` 检查是否已有 `child('main')`。
+3. 若没有，提示输入孩子名字，通过 `POST /api/sync` 写入。
+
+### Curl 示例
+
+```bash
+curl -s -X POST https://<your-domain>/api/sync \
+  -H "content-type: application/json" \
+  -H "x-access-key: <你的访问密码>" \
+  -d '{"child":{"name":"小明","created_at":"2025-11-06T07:00:00Z"}}'
+
+curl -s -X POST https://<your-domain>/api/transactions \
+  -H "content-type: application/json" \
+  -H "x-access-key: <你的访问密码>" \
+  -d '{"id":"t1","type":"task_complete","points":5,"idempotency_key":"k1","created_at":"2025-11-06T07:00:00Z","created_by":"me"}'
+
+curl -s https://<your-domain>/api/transactions -H "x-access-key: <你的访问密码>"
+```

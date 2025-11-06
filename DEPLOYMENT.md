@@ -99,6 +99,22 @@ database_id = "your-database-id-here"  # 替换为实际 ID
 command = "npm run build"
 ```
 
+在生产环境中添加访问密码和 D1 绑定：
+
+```toml
+[env.production]
+name = "credits-wall"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "kids-points-db"
+database_id = "your-database-id-here"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+ACCESS_KEY = "<你的访问密码>"
+```
+
 ### 4. 初始化数据库
 
 ```bash
@@ -130,6 +146,29 @@ npx wrangler pages deploy .svelte-kit/cloudflare --project-name=credits-wall
 3. 添加变量名 `DB` → 选择数据库 `kids-points-db`
 
 ## 开发测试
+
+### 访问密码（ACCESS_KEY）与单 child 模式
+
+- 本项目采用“单 child + 访问密码”架构。
+- 所有 API 必须在请求头携带：`X-Access-Key: <你的访问密码>`。
+- 服务端仅维护一个孩子记录：`child.id = 'main'`。
+- 首次访问页面会弹出“访问密码”与“孩子名字”输入弹窗，客户端会将 ACCESS_KEY 保存到 localStorage。
+
+本地调试 curl 示例：
+
+```bash
+curl -s -X POST https://<your-domain>/api/sync \
+  -H "content-type: application/json" \
+  -H "x-access-key: <你的访问密码>" \
+  -d '{"child":{"name":"小明","created_at":"2025-11-06T07:00:00Z"}}'
+
+curl -s -X POST https://<your-domain>/api/transactions \
+  -H "content-type: application/json" \
+  -H "x-access-key: <你的访问密码>" \
+  -d '{"id":"t1","type":"task_complete","points":5,"idempotency_key":"k1","created_at":"2025-11-06T07:00:00Z","created_by":"me"}'
+
+curl -s https://<your-domain>/api/transactions -H "x-access-key: <你的访问密码>"
+```
 
 ### 本地开发
 
@@ -198,7 +237,7 @@ await downloadFromServer();
 
 ```bash
 wrangler d1 execute kids-points-db --command="
-DELETE FROM transaction;
+DELETE FROM transactions;
 DELETE FROM child;
 DELETE FROM task_template;
 DELETE FROM reward_item;
@@ -222,7 +261,7 @@ console.log(result);
 wrangler d1 execute kids-points-db --command="SELECT * FROM child"
 
 # 查看交易
-wrangler d1 execute kids-points-db --command="SELECT COUNT(*) as count FROM transaction"
+wrangler d1 execute kids-points-db --command="SELECT COUNT(*) as count FROM transactions"
 
 # 查看统计
 wrangler d1 execute kids-points-db --command="
@@ -250,7 +289,7 @@ wrangler pages deployment tail
 # 查看最近交易
 wrangler d1 execute kids-points-db --command="
 SELECT type, points, notes, created_at 
-FROM transaction 
+FROM transactions 
 ORDER BY created_at DESC 
 LIMIT 10
 "
@@ -258,7 +297,7 @@ LIMIT 10
 # 检查撤销记录
 wrangler d1 execute kids-points-db --command="
 SELECT id, notes, reversed, reversed_by 
-FROM transaction 
+FROM transactions 
 WHERE type = 'reverse' OR reversed = 1
 "
 ```
@@ -295,9 +334,9 @@ wrangler d1 execute kids-points-db --file=./db/schema.sql --force
 
 ### 3. 索引优化
 ```sql
-CREATE INDEX IF NOT EXISTS idx_tx_child_time ON transaction(child_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_tx_idem ON transaction(idempotency_key);
-CREATE INDEX IF NOT EXISTS idx_tx_reversed ON transaction(reversed, type);
+CREATE INDEX IF NOT EXISTS idx_tx_child_time ON transactions(child_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tx_idem ON transactions(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_tx_reversed ON transactions(reversed, type);
 ```
 
 ## 下一步

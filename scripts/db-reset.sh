@@ -17,7 +17,7 @@ fi
 
 echo "📋 删除所有表..."
 wrangler d1 execute $DB_NAME --command="
-DROP TABLE IF EXISTS transaction;
+DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS penalty_rule;
 DROP TABLE IF EXISTS reason_catalog;
 DROP TABLE IF EXISTS reward_item;

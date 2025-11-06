@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS penalty_rule (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS transaction (
+CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,
   child_id TEXT NOT NULL,
   type TEXT NOT NULL,
@@ -76,5 +76,5 @@ CREATE TABLE IF NOT EXISTS transaction (
   FOREIGN KEY(child_id) REFERENCES child(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tx_child_time ON transaction(child_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_tx_idem ON transaction(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_tx_child_time ON transactions(child_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tx_idem ON transactions(idempotency_key);

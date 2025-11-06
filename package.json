@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:cf": "npm run build && cp -r functions .svelte-kit/cloudflare/",
     "preview": "vite preview",
-    "cf:dev": "wrangler pages dev .",
-    "cf:deploy": "wrangler pages deploy ./build"
+    "cf:dev": "wrangler pages dev .svelte-kit/cloudflare",
+    "cf:deploy": "npm run build:cf && npx wrangler pages deploy .svelte-kit/cloudflare --project-name=credits-wall"
   },
   "dependencies": {
     "dexie": "^4.0.8",

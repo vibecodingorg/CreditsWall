@@ -3,6 +3,7 @@
 
 name = "credits-wall"
 compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
 
 # Pages 配置
 pages_build_output_dir = ".svelte-kit/cloudflare"
@@ -11,20 +12,20 @@ pages_build_output_dir = ".svelte-kit/cloudflare"
 [[d1_databases]]
 binding = "DB"  # 在代码中通过 env.DB 访问
 database_name = "kids-points-db"
-database_id = "your-database-id-here"  # 从 wrangler d1 create 命令的输出中获取
-
-# 环境变量（可选）
-[vars]
-ENVIRONMENT = "production"
+database_id = ""  # 从 wrangler d1 create 命令的输出中获取
 
 # 开发环境配置
-[env.development]
-name = "credits-wall-dev"
+[env.production]
+name = "credits-wall"
 
-[[env.development.d1_databases]]
+[[env.production.d1_databases]]
 binding = "DB"
-database_name = "kids-points-db-dev"
-database_id = "your-dev-database-id-here"
+database_name = "kids-points-db"
+database_id = ""
+
+[env.production.vars]
+ENVIRONMENT = "production"
+ACCESS_KEY = ""
 
 # 路由配置（可选）
 # routes = [

@@ -1,50 +1,56 @@
 import Dexie, { type Table } from 'dexie';
 
-export interface Child { id: string; name: string; avatar?: string; color?: string; total_earned?: number; total_spent?: number; total_penalty?: number; created_at: string }
+export interface Child { id: string; name: string; avatar?: string; color?: string; total_earned?: number; total_spent?: number; total_penalty?: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
 
 export async function listTasks(): Promise<TaskTemplate[]> {
-  return db.tasks.orderBy('created_at').toArray();
+  return db.tasks.filter((t: any) => !t.deleted_at).sortBy('created_at');
 }
 
 export async function addTask(input: { title: string; points: number; icon?: string; type?: 'single'|'daily' }): Promise<TaskTemplate> {
-  const t: TaskTemplate = { id: crypto.randomUUID(), title: input.title, points: input.points, icon: input.icon, type: input.type || 'daily', active: 1, created_at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const t: TaskTemplate = { id: crypto.randomUUID(), title: input.title, points: input.points, icon: input.icon, type: input.type || 'daily', active: 1, created_at: now } as any;
+  (t as any).updated_at = now;
   await db.tasks.add(t);
   return t;
 }
 
 export async function toggleTaskActive(id: string, active: boolean): Promise<void> {
-  await db.tasks.update(id, { active: active ? 1 : 0 });
+  await db.tasks.update(id, { active: active ? 1 : 0, updated_at: new Date().toISOString() } as any);
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  await db.tasks.delete(id);
+  await db.tasks.update(id, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any);
 }
 
 export async function listRewards(): Promise<RewardItem[]> {
-  return db.rewards.orderBy('created_at').toArray();
+  return db.rewards.filter((r: any) => !r.deleted_at).sortBy('created_at');
 }
 
 export async function addReward(input: { title: string; cost_points: number; icon?: string }): Promise<RewardItem> {
-  const r: RewardItem = { id: crypto.randomUUID(), title: input.title, cost_points: input.cost_points, icon: input.icon, active: 1, created_at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const r: RewardItem = { id: crypto.randomUUID(), title: input.title, cost_points: input.cost_points, icon: input.icon, active: 1, created_at: now } as any;
+  (r as any).updated_at = now;
   await db.rewards.add(r);
   return r;
 }
 
 export async function toggleRewardActive(id: string, active: boolean): Promise<void> {
-  await db.rewards.update(id, { active: active ? 1 : 0 });
+  await db.rewards.update(id, { active: active ? 1 : 0, updated_at: new Date().toISOString() } as any);
 }
 
 export async function deleteReward(id: string): Promise<void> {
-  await db.rewards.delete(id);
+  await db.rewards.update(id, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any);
 }
 
 export async function listPenaltyRules(): Promise<PenaltyRule[]> {
   // @ts-ignore
-  return (db as any).penalties?.orderBy('created_at').toArray() ?? [];
+  return ((db as any).penalties?.filter((p: any) => !p.deleted_at).sortBy('created_at')) ?? [];
 }
 
 export async function addPenaltyRule(input: { title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up' }): Promise<PenaltyRule> {
-  const p: PenaltyRule = { id: crypto.randomUUID(), title: input.title, icon: input.icon, mode: input.mode, value: input.value, basis: input.basis, rounding: input.rounding, active: 1, created_at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const p: PenaltyRule = { id: crypto.randomUUID(), title: input.title, icon: input.icon, mode: input.mode, value: input.value, basis: input.basis, rounding: input.rounding, active: 1, created_at: now } as any;
+  (p as any).updated_at = now;
   // @ts-ignore
   await (db as any).penalties.add(p);
   return p;
@@ -52,39 +58,41 @@ export async function addPenaltyRule(input: { title: string; icon?: string; mode
 
 export async function togglePenaltyRuleActive(id: string, active: boolean): Promise<void> {
   // @ts-ignore
-  await (db as any).penalties.update(id, { active: active ? 1 : 0 });
+  await (db as any).penalties.update(id, { active: active ? 1 : 0, updated_at: new Date().toISOString() } as any);
 }
 
 export async function deletePenaltyRule(id: string): Promise<void> {
   // @ts-ignore
-  await (db as any).penalties.delete(id);
+  await (db as any).penalties.update(id, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any);
 }
 
 export async function listChildren(): Promise<Child[]> {
-  return db.children.orderBy('created_at').toArray();
+  return db.children.filter((c: any) => !c.deleted_at).sortBy('created_at');
 }
 
 export async function addChild(input: { name: string; color?: string; avatar?: string }): Promise<Child> {
+  const now = new Date().toISOString();
   const child: Child = {
     id: crypto.randomUUID(),
     name: input.name,
     color: input.color,
     avatar: input.avatar,
-    created_at: new Date().toISOString()
+    created_at: now
   };
+  (child as any).updated_at = now;
   await db.children.add(child);
   return child;
 }
-export interface TaskTemplate { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number; created_at: string }
-export interface RewardItem { id: string; title: string; cost_points: number; icon?: string; active: number; created_at: string }
-export interface PenaltyRule { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up'; active: number; created_at: string }
+export interface TaskTemplate { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
+export interface RewardItem { id: string; title: string; cost_points: number; icon?: string; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
+export interface PenaltyRule { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
 export type TxType = 'issue' | 'spend' | 'reverse' | 'adjust' | 'task_complete' | 'penalty';
 export interface Transaction {
   id: string; child_id: string; type: TxType; points: number; ref_id?: string;
   idempotency_key: string; created_at: string; created_by: 'local_device'|'parent'|'child';
   rule_id?: string; calc_basis?: 'current_balance'|'today_earned'|'task_points'; calc_snapshot?: any;
   reason_id?: string; reason_code?: string; reason_category?: string; tags?: string[]; notes?: string
-  sync_status?: 'pending'|'synced'|'error'; server_version?: number;
+  sync_status?: 'pending'|'synced'|'error'; server_version?: number; updated_at?: string; deleted_at?: string; last_editor?: string;
   reversed?: boolean; reversed_by?: string; // 标记是否已撤销，以及撤销交易的ID
 }
 export interface ReasonCatalog { id: string; code: string; title: string; category: string; is_preset: number; active: number; created_at: string }
@@ -164,7 +172,8 @@ export async function updateChildStats(childId: string, earnedDelta: number, spe
   await db.children.update(childId, {
     total_earned: newEarned,
     total_spent: newSpent,
-    total_penalty: newPenalty
+    total_penalty: newPenalty,
+    updated_at: new Date().toISOString()
   });
 }
 
@@ -187,6 +196,7 @@ export async function getTodayCompletedTasks(childId: string): Promise<Set<strin
 
 // 完成任务（添加交易记录并更新统计）
 export async function completeTask(childId: string, taskId: string, points: number, title: string): Promise<Transaction> {
+  const now = new Date().toISOString();
   const tx: Transaction = {
     id: crypto.randomUUID(),
     child_id: childId,
@@ -194,12 +204,13 @@ export async function completeTask(childId: string, taskId: string, points: numb
     points: Math.abs(points),
     ref_id: taskId,
     idempotency_key: `task-${taskId}-${Date.now()}`,
-    created_at: new Date().toISOString(),
+    created_at: now,
     created_by: 'child',
     notes: `完成 ${title}`,
     sync_status: 'pending',
     reversed: false
   };
+  (tx as any).updated_at = now;
   
   await db.transactions.add(tx);
   await updateChildStats(childId, Math.abs(points), 0, 0);
@@ -209,6 +220,7 @@ export async function completeTask(childId: string, taskId: string, points: numb
 
 // 执行扣分（添加交易记录并更新统计）
 export async function applyPenalty(childId: string, penaltyId: string, points: number, title: string): Promise<Transaction> {
+  const now = new Date().toISOString();
   const tx: Transaction = {
     id: crypto.randomUUID(),
     child_id: childId,
@@ -216,12 +228,13 @@ export async function applyPenalty(childId: string, penaltyId: string, points: n
     points: -Math.abs(points),
     ref_id: penaltyId,
     idempotency_key: `penalty-${penaltyId}-${Date.now()}`,
-    created_at: new Date().toISOString(),
+    created_at: now,
     created_by: 'child',
     notes: title,
     sync_status: 'pending',
     reversed: false
   };
+  (tx as any).updated_at = now;
   
   await db.transactions.add(tx);
   // 扣分记入 penaltyDelta
@@ -232,6 +245,7 @@ export async function applyPenalty(childId: string, penaltyId: string, points: n
 
 // 兑换奖励（添加交易记录并更新统计）
 export async function redeemReward(childId: string, rewardId: string, cost: number, title: string): Promise<Transaction> {
+  const now = new Date().toISOString();
   const tx: Transaction = {
     id: crypto.randomUUID(),
     child_id: childId,
@@ -239,12 +253,13 @@ export async function redeemReward(childId: string, rewardId: string, cost: numb
     points: -Math.abs(cost),
     ref_id: rewardId,
     idempotency_key: `reward-${rewardId}-${Date.now()}`,
-    created_at: new Date().toISOString(),
+    created_at: now,
     created_by: 'child',
     notes: `兑换 ${title}`,
     sync_status: 'pending',
     reversed: false
   };
+  (tx as any).updated_at = now;
   
   await db.transactions.add(tx);
   // 兑换消耗记入 spentDelta
@@ -273,6 +288,7 @@ export async function reverseTransaction(childId: string, originalTx: Transactio
   }
   
   // 创建撤销交易
+  const now = new Date().toISOString();
   const reverseTx: Transaction = {
     id: crypto.randomUUID(),
     child_id: childId,
@@ -280,19 +296,21 @@ export async function reverseTransaction(childId: string, originalTx: Transactio
     points: -originalTx.points, // 取反
     ref_id: originalTx.id, // 引用原交易
     idempotency_key: `reverse-${originalTx.id}`,
-    created_at: new Date().toISOString(),
+    created_at: now,
     created_by: 'child',
     notes: `撤销 ${originalTx.notes || ''}`,
     sync_status: 'pending',
     reversed: false
   };
+  (reverseTx as any).updated_at = now;
   
   await db.transactions.add(reverseTx);
   
   // 标记原交易为已撤销
   await db.transactions.update(originalTx.id, {
     reversed: true,
-    reversed_by: reverseTx.id
+    reversed_by: reverseTx.id,
+    updated_at: new Date().toISOString()
   });
   
   // 更新统计：根据原交易类型撤销相应的统计

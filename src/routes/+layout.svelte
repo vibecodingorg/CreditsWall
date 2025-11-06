@@ -1,7 +1,8 @@
 <script lang="ts">
   import '../app.css';
   import { setupI18n, setLang } from '$lib/i18n';
-  import { setupAutoSync } from '$lib/sync';
+  import { setupAutoSync, ensureAccessAndChild } from '$lib/sync';
+  import AccessKeyDialog from '$lib/components/AccessKeyDialog.svelte';
   import { onMount } from 'svelte';
   import { t, waitLocale, locale } from 'svelte-i18n';
   import { page } from '$app/stores';
@@ -9,8 +10,16 @@
   
   setupI18n();
   
-  onMount(() => {
-    setupAutoSync();
+  let showKeyDialog = false;
+  function hasKey() { try { return !!localStorage.getItem('ACCESS_KEY'); } catch { return false; } }
+
+  onMount(async () => {
+    if (!hasKey()) {
+      showKeyDialog = true;
+    } else {
+      await ensureAccessAndChild();
+      setupAutoSync();
+    }
     const handler = () => {};
     window.addEventListener('ledger:changed', handler);
     window.addEventListener('sync:status', onSync as any);
@@ -19,6 +28,13 @@
       window.removeEventListener('sync:status', onSync as any);
     };
   });
+
+  async function onKeySubmit(key: string) {
+    try { localStorage.setItem('ACCESS_KEY', key); } catch {}
+    showKeyDialog = false;
+    await ensureAccessAndChild();
+    setupAutoSync();
+  }
   
   let syncStatus: 'idle'|'syncing'|'error'|'offline' = 'idle';
   function onSync(e: CustomEvent) { syncStatus = (e as any).detail?.status || 'idle'; }

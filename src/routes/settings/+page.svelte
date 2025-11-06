@@ -1,13 +1,12 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
-  import { listChildren, addChild, listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward, deletePenaltyRule } from '$lib/db/dexie';
+  import { listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward, deletePenaltyRule } from '$lib/db/dexie';
   import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Settings2 as Settings } from 'lucide-svelte';
   import IconPicker from '$lib/components/IconPicker.svelte';
   import { getIcon } from '$lib/icons';
   
-  let children: { id: string; name: string; color?: string; avatar?: string }[] = [];
-  let newChild = { name: '', color: '#22c55e' };
+  let childName: string = '';
   let tasks: { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number }[] = [];
   let newTask = { title: '', points: 5, icon: '', type: 'daily' as 'single'|'daily' };
   let showTaskIconPicker = false;
@@ -17,16 +16,30 @@
   let penalties: { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: string; rounding?: string; active: number }[] = [];
   let newPenalty = { title: '', icon: '', mode: 'fixed' as 'fixed'|'percent', value: 5, basis: 'current_balance', rounding: 'down' };
   let showPenaltyIconPicker = false;
-  async function refreshChildren() { children = await listChildren(); }
   async function refreshTasks() { tasks = await listTasks(); }
   async function refreshRewards() { rewards = await listRewards(); }
   async function refreshPenalties() { penalties = await listPenaltyRules(); }
-  onMount(async () => { await refreshChildren(); await refreshTasks(); await refreshRewards(); await refreshPenalties(); });
-  async function addChildAction() {
-    if (!newChild.name) return alert('请输入孩子名字');
-    await addChild({ name: newChild.name, color: newChild.color });
-    newChild = { name: '', color: '#22c55e' };
-    await refreshChildren();
+  onMount(async () => { await loadChildName(); await refreshTasks(); await refreshRewards(); await refreshPenalties(); });
+
+  async function loadChildName() {
+    try {
+      const key = localStorage.getItem('ACCESS_KEY');
+      const res = await fetch('/api/sync', { headers: { 'x-access-key': key || '' } });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.ok && data.data && data.data.child) {
+        childName = data.data.child.name || '';
+      }
+    } catch {}
+  }
+
+  async function saveChildName() {
+    if (!childName) return alert('请输入孩子名字');
+    const key = localStorage.getItem('ACCESS_KEY') || '';
+    const payload = { child: { name: childName, created_at: new Date().toISOString() } };
+    const res = await fetch('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json', 'x-access-key': key }, body: JSON.stringify(payload) });
+    if (!res.ok) return alert('保存失败');
+    alert('已保存');
   }
   async function addTaskAction() {
     if (!newTask.title || !newTask.points) return alert('请输入任务标题与积分');
@@ -81,35 +94,23 @@
     {$t('settings.title')}
   </h2>
   
-  <!-- 孩子管理 -->
+  <!-- 孩子设置（单 child） -->
   <div class="bg-white rounded-2xl shadow-sm border-2 p-5 space-y-4">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
         <Users class="text-blue-600" size={22} />
       </div>
-      <h3 class="text-lg font-semibold">{$t('settings.children')}</h3>
+      <h3 class="text-lg font-semibold">孩子设置</h3>
     </div>
-    
+
     <div class="space-y-3">
       <div class="flex gap-2">
-        <input class="border-2 rounded-lg p-3 flex-1" placeholder="孩子名字" bind:value={newChild.name} />
-        <input class="border-2 rounded-lg p-3 w-16" type="color" bind:value={newChild.color} />
-        <button class="px-4 py-3 bg-blue-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={addChildAction}>
-          <Plus size={18} />
+        <input class="border-2 rounded-lg p-3 flex-1" placeholder="孩子名字" bind:value={childName} />
+        <button type="button" class="px-4 py-3 bg-blue-500 text-white rounded-lg font-medium touch-feedback flex items-center gap-2" on:click={saveChildName}>
+          <Plus size={18} /> 保存
         </button>
       </div>
-      
-      <div class="space-y-2">
-        {#each children as c}
-          <div class="p-3 bg-gray-50 rounded-lg flex items-center gap-3">
-            <span class="w-6 h-6 rounded-full flex-shrink-0" style="background:{c.color || '#999'}"></span>
-            <span class="font-medium">{c.name}</span>
-          </div>
-        {/each}
-        {#if children.length === 0}
-          <p class="text-sm text-gray-400 text-center py-4">暂无孩子</p>
-        {/if}
-      </div>
+      <p class="text-xs text-gray-400">说明：系统采用单孩子模式，所有积分将归属该孩子</p>
     </div>
   </div>
   

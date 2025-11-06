@@ -24,8 +24,22 @@
 </script>
 
 {#if show}
-  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in" on:click={handleCancel}>
-    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-slide-up" on:click|stopPropagation>
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in"
+    role="button"
+    tabindex="0"
+    aria-label="关闭对话框"
+    on:click={handleCancel}
+    on:keydown={(e) => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') handleCancel(); }}
+  >
+    <div
+      class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-slide-up"
+      role="dialog"
+      aria-modal="true"
+      tabindex="0"
+      on:keydown|stopPropagation={(e) => { if (e.key === 'Escape') handleCancel(); }}
+      on:click|stopPropagation
+    >
       <!-- 标题 -->
       <h3 class="text-xl font-bold mb-3 text-gray-900">{title}</h3>
       

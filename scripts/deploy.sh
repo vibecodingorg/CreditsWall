@@ -29,7 +29,7 @@ echo "🔨 构建项目..."
 npm run build
 
 echo "📤 部署到 Cloudflare Pages..."
-npx wrangler pages deploy .svelte-kit/cloudflare
+npx wrangler pages deploy
 
 echo ""
 echo "✅ 部署完成！"
