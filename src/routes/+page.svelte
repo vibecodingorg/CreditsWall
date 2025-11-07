@@ -54,7 +54,8 @@
         ...t,
         completed: completedTaskIds.has(t.id) && t.type === 'daily'
       }))
-      .filter(t => !(t.type === 'single' && completedTaskIds.has(t.id))); // 单次任务完成后隐藏
+      .filter(t => !(t.type === 'single' && completedTaskIds.has(t.id)))
+      .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0)); // 已完成排后
     
     // 加载扣分项
     const penaltyList = await listPenaltyRules();
@@ -196,6 +197,7 @@
             <TaskCard
               title={penalty.title}
               points={penalty.mode === 'fixed' ? -penalty.value : -penalty.value}
+              pointsText={penalty.mode === 'percent' ? `-${penalty.value}%` : null}
               icon={penalty.icon || 'alert'}
               color="bg-rose-500"
               onClick={() => handlePenaltyLongPress(penalty)}

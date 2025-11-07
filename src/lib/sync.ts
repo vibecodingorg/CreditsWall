@@ -220,7 +220,11 @@ export async function pushOnce() {
     if (res.status === 401) { emit('error', { auth: true }); return false; }
     if (!res.ok) return false;
     const data = await res.json() as any;
-    if (data && data.ok) { setLastPushed(new Date().toISOString()); return true; }
+    if (data && data.ok) {
+      setLastPushed(new Date().toISOString());
+      try { await pullOnce(); } catch {}
+      return true;
+    }
     return false;
   } catch {
     return false;
@@ -447,8 +451,6 @@ export function setupAutoSync() {
   window.addEventListener('online', onWake);
   window.addEventListener('focus', onWake);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) onWake(); });
-  // 周期性拉取，避免长时间不触发事件
-  setInterval(() => { void pullOnce(); }, 20000);
   // 周期性推送，确保本地改动尽快上行
   setInterval(() => { void pushOnce(); }, 10000);
   void doSync();

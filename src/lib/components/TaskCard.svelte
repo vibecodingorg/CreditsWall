@@ -11,6 +11,7 @@
   
   export let title: string;
   export let points: number;
+  export let pointsText: string | null = null;
   export let icon: string | null = null;
   export let color: string = 'bg-blue-500';
   export let onClick: () => void = () => {};
@@ -77,7 +78,11 @@
     <div class="flex items-center gap-4 flex-shrink-0">
       <!-- 积分 -->
       <div class="text-4xl font-bold leading-none">
-        {points > 0 ? '+' : ''}{points}
+        {#if pointsText}
+          {pointsText}
+        {:else}
+          {points > 0 ? '+' : ''}{points}
+        {/if}
       </div>
       
       <!-- 完成状态 -->

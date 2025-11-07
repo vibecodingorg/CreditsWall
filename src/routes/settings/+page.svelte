@@ -2,6 +2,7 @@
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward, deletePenaltyRule } from '$lib/db/dexie';
+  import { pullOnce } from '$lib/sync';
   import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Settings2 as Settings } from 'lucide-svelte';
   import IconPicker from '$lib/components/IconPicker.svelte';
   import { getIcon } from '$lib/icons';
@@ -86,12 +87,19 @@
     await deletePenaltyRule(id);
     await refreshPenalties();
   }
+  async function manualPull() {
+    await pullOnce();
+    await refreshTasks();
+    await refreshRewards();
+    await refreshPenalties();
+  }
 </script>
 
 <section class="p-6 space-y-6">
   <h2 class="text-2xl font-bold flex items-center gap-2">
     <Settings size={28} class="text-gray-700" />
     {$t('settings.title')}
+    <button type="button" class="ml-auto px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" on:click={manualPull}>手动拉取</button>
   </h2>
   
   <!-- 孩子设置（单 child） -->
