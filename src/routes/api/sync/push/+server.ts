@@ -17,25 +17,6 @@ function sanitize(table: string, row: any): any {
     const allow = [...common, 'name','avatar','color','total_earned','total_spent','total_penalty'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
   }
-
-async function recalcChildTotals(db: D1Database, childId: string) {
-  // 依据 transactions 实表重算统计，保证权威一致
-  const sums = await db.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN type IN ('task_complete','issue','adjust') AND points > 0 THEN points ELSE 0 END), 0) AS earned,
-       COALESCE(SUM(CASE WHEN type = 'spend' THEN -points ELSE 0 END), 0) AS spent,
-       COALESCE(SUM(CASE WHEN type = 'penalty' THEN -points ELSE 0 END), 0) AS penalty
-     FROM transactions WHERE child_id = ? AND deleted_at IS NULL`
-  ).bind(childId).first<{ earned: number; spent: number; penalty: number }>();
-
-  const nowIso = new Date().toISOString();
-  const ver = await nextVersion(db);
-  await db.prepare(
-    `UPDATE child
-       SET total_earned = ?, total_spent = ?, total_penalty = ?, updated_at = ?, server_version = ?
-     WHERE id = ?`
-  ).bind(Number(sums?.earned || 0), Number(sums?.spent || 0), Number(sums?.penalty || 0), nowIso, ver, childId).run();
-}
   if (table === 'task_template') {
     const allow = [...common, 'title','points','icon','type','active'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
@@ -61,6 +42,25 @@ async function recalcChildTotals(db: D1Database, childId: string) {
     return out;
   }
   return row;
+}
+
+async function recalcChildTotals(db: D1Database, childId: string) {
+  // 依据 transactions 实表重算统计，保证权威一致
+  const sums = await db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN type IN ('task_complete','issue','adjust') AND points > 0 THEN points ELSE 0 END), 0) AS earned,
+       COALESCE(SUM(CASE WHEN type = 'spend' THEN -points ELSE 0 END), 0) AS spent,
+       COALESCE(SUM(CASE WHEN type = 'penalty' THEN -points ELSE 0 END), 0) AS penalty
+     FROM transactions WHERE child_id = ? AND deleted_at IS NULL`
+  ).bind(childId).first<{ earned: number; spent: number; penalty: number }>();
+
+  const nowIso = new Date().toISOString();
+  const ver = await nextVersion(db);
+  await db.prepare(
+    `UPDATE child
+       SET total_earned = ?, total_spent = ?, total_penalty = ?, updated_at = ?, server_version = ?
+     WHERE id = ?`
+  ).bind(Number(sums?.earned || 0), Number(sums?.spent || 0), Number(sums?.penalty || 0), nowIso, ver, childId).run();
 }
 
 async function nextVersion(db: D1Database): Promise<number> {

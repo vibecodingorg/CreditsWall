@@ -127,7 +127,14 @@ export async function bootstrapIfNeeded() {
     if (!res.ok) return false;
     const data = await res.json() as BootstrapResponse;
     if (!('ok' in data) || !data.ok) return false;
-    await db.transaction('rw', db.children, db.tasks, db.rewards, db.transactions, async () => {
+    const tables1 = [
+      db.children,
+      db.tasks,
+      db.rewards,
+      db.transactions,
+      ...(((db as any).penalties) ? [(db as any).penalties] : [])
+    ];
+    await db.transaction('rw', tables1 as any, async () => {
       await db.children.clear();
       await db.tasks.clear();
       await db.rewards.clear();
@@ -160,7 +167,14 @@ export async function pullOnce() {
     const data = await res.json() as PullResponse;
     if (!('ok' in data) || !data.ok) return false;
     const changes = (data as any).changes || {};
-    await db.transaction('rw', db.children, db.tasks, db.rewards, db.transactions, async () => {
+    const tables2 = [
+      db.children,
+      db.tasks,
+      db.rewards,
+      db.transactions,
+      ...(((db as any).penalties) ? [(db as any).penalties] : [])
+    ];
+    await db.transaction('rw', tables2 as any, async () => {
       for (const row of (changes.child || [])) await mergeRow('child', row);
       for (const row of (changes.task_template || [])) await mergeRow('task_template', row);
       for (const row of (changes.reward_item || [])) await mergeRow('reward_item', row);
