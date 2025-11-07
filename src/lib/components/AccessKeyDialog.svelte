@@ -14,8 +14,8 @@
 </script>
 
 {#if show}
-  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" tabindex="0" on:keydown={onKeydown}>
-    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" role="dialog" aria-modal="true" tabindex="0">
+  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" role="presentation">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" role="dialog" aria-modal="true" tabindex="0" on:keydown={onKeydown}>
       <h3 class="text-lg font-semibold mb-3">输入访问密码</h3>
       <p class="text-sm text-gray-500 mb-4">部署时在服务器端设置的 ACCESS_KEY</p>
       <div class="flex gap-2">

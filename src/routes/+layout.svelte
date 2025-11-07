@@ -129,3 +129,5 @@
     </div>
   </div>
 {/if}
+<!-- 访问密码弹窗 -->
+<AccessKeyDialog show={showKeyDialog} onSubmit={onKeySubmit} />

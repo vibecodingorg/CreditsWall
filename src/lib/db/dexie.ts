@@ -131,17 +131,24 @@ export class AppDB extends Dexie {
 export const db = new AppDB();
 
 export async function ensureDefaultChild(): Promise<Child> {
+  // 优先选择服务端标准ID 'main'
+  const main = await db.children.get('main');
+  if (main) return main as Child;
+  // 否则返回已有的第一个
   const existing = await db.children.toCollection().first();
-  if (existing) return existing;
+  if (existing) return existing as Child;
+  // 都没有则创建 'main'
+  const now = new Date().toISOString();
   const child: Child = {
-    id: crypto.randomUUID(),
+    id: 'main',
     name: '小朋友',
     color: '#22c55e',
     total_earned: 0,
     total_spent: 0,
     total_penalty: 0,
-    created_at: new Date().toISOString()
-  };
+    created_at: now,
+    updated_at: now
+  } as any;
   await db.children.add(child);
   return child;
 }

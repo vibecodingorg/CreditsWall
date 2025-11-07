@@ -60,38 +60,58 @@ function getDeviceId(): string {
   } catch { return 'unknown-device'; }
 }
 
+function ts(v?: string): number {
+  if (!v) return 0;
+  // 兼容 'YYYY-MM-DD HH:mm:ss' 与无时区字符串
+  let s = v.trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = s.replace(' ', 'T') + 'Z';
+  else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) s = s + 'Z';
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+
 function newerThan(a?: string, b?: string) {
   if (!a && !b) return false;
   if (a && !b) return true;
   if (!a && b) return false;
-  return new Date(a!).getTime() > new Date(b!).getTime();
+  return ts(a) > ts(b);
+}
+
+function isNewer(remote: any, local: any): boolean {
+  const rv = Number(remote?.server_version || 0);
+  const lv = Number(local?.server_version || 0);
+  if (rv !== lv) return rv > lv;
+  // 回落到时间戳比较，容错不同格式
+  const ru = ts(remote?.updated_at);
+  const lu = ts(local?.updated_at);
+  return ru > lu;
 }
 
 async function mergeRow(table: 'child'|'task_template'|'reward_item'|'penalty_rule'|'transactions', row: any) {
   // P3：保留墓碑（deleted_at），查询时过滤；这里按 LWW 覆盖本地
   if (table === 'child') {
     const local = await db.children.get(row.id);
-    if (!local || newerThan(row.updated_at, (local as any).updated_at)) {
+    if (!local || isNewer(row, local)) {
       await db.children.put(row);
     }
   } else if (table === 'task_template') {
     const local = await db.tasks.get(row.id);
-    if (!local || newerThan(row.updated_at, (local as any).updated_at)) {
+    if (!local || isNewer(row, local)) {
       await db.tasks.put(row);
     }
   } else if (table === 'reward_item') {
     const local = await db.rewards.get(row.id);
-    if (!local || newerThan(row.updated_at, (local as any).updated_at)) {
+    if (!local || isNewer(row, local)) {
       await db.rewards.put(row);
     }
-  } else if ((db as any).penalties && table === 'penalty_rule') {
+  } else if (table === 'penalty_rule') {
     const local = await (db as any).penalties.get(row.id);
-    if (!local || newerThan(row.updated_at, (local as any).updated_at)) {
+    if (!local || isNewer(row, local)) {
       await (db as any).penalties.put(row);
     }
   } else if (table === 'transactions') {
     const local = await db.transactions.get(row.id);
-    if (!local || newerThan(row.updated_at, (local as any).updated_at)) {
+    if (!local || isNewer(row, local)) {
       await db.transactions.put({ ...row, sync_status: 'synced' });
     }
   }
@@ -103,6 +123,7 @@ export async function bootstrapIfNeeded() {
   if (getCursor() > 0) return true;
   try {
     const res = await fetch('/api/bootstrap', { headers: { 'x-access-key': key } });
+    if (res.status === 401) { emit('error', { auth: true }); return false; }
     if (!res.ok) return false;
     const data = await res.json() as BootstrapResponse;
     if (!('ok' in data) || !data.ok) return false;
@@ -120,6 +141,7 @@ export async function bootstrapIfNeeded() {
         (data.data.transactions as any[]).map(x => ({ ...x, sync_status: 'synced' }))
       );
     });
+    try { window.dispatchEvent(new Event('ledger:changed')); } catch {}
     setCursor((data as any).cursor || 0);
     return true;
   } catch {
@@ -133,6 +155,7 @@ export async function pullOnce() {
   const cursor = getCursor();
   try {
     const res = await fetch(`/api/sync/pull?cursor=${cursor}&limit=500`, { headers: { 'x-access-key': key } });
+    if (res.status === 401) { emit('error', { auth: true }); return false; }
     if (!res.ok) return false;
     const data = await res.json() as PullResponse;
     if (!('ok' in data) || !data.ok) return false;
@@ -144,6 +167,7 @@ export async function pullOnce() {
       for (const row of (changes.penalty_rule || [])) await mergeRow('penalty_rule', row);
       for (const row of (changes.transactions || [])) await mergeRow('transactions', row);
     });
+    try { window.dispatchEvent(new Event('ledger:changed')); } catch {}
     setCursor((data as any).cursor || cursor);
     return true;
   } catch {
@@ -171,12 +195,15 @@ export async function pushOnce() {
     const transactions = after(await db.transactions.toArray());
 
     const changes = { child, task_template, reward_item, penalty_rule: penaltiesTbl, transactions };
+    const total = child.length + task_template.length + reward_item.length + penaltiesTbl.length + transactions.length;
+    if (total === 0) return true; // 无需请求，也不推进 LAST_PUSHED_AT
 
     const res = await fetch('/api/sync/push', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-access-key': key },
       body: JSON.stringify({ device_id, changes })
     });
+    if (res.status === 401) { emit('error', { auth: true }); return false; }
     if (!res.ok) return false;
     const data = await res.json() as any;
     if (data && data.ok) { setLastPushed(new Date().toISOString()); return true; }
@@ -199,24 +226,14 @@ export async function ensureAccessAndChild() {
       return false;
     }
   }
-  try {
-    const res = await fetch('/api/sync', { headers: { 'x-access-key': key! } });
-    if (!res.ok) return false;
-    const data = await res.json() as SyncGetResponse;
-    if ('ok' in data && data.ok && !data.data.child) {
-      const name = window.prompt('请设置孩子名字');
-      if (!name) return true; // 用户取消
-      const post = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-access-key': key! },
-        body: JSON.stringify({ child: { name, created_at: new Date().toISOString() } })
-      });
-      return post.ok;
-    }
-    return true;
-  } catch {
-    return false;
+  // 确保本地存在默认 child，如无则创建并通过 push 上行
+  const existing = await db.children.toCollection().first();
+  if (!existing) {
+    const now = new Date().toISOString();
+    await db.children.add({ id: 'main', name: '小朋友', created_at: now, updated_at: now } as any);
+    await pushOnce();
   }
+  return true;
 }
 
 /**
@@ -403,6 +420,8 @@ export async function downloadFromServer(childId?: string) {
  */
 export function setupAutoSync() {
   const doSync = async () => { 
+    // 先确保有密钥/child，引导用户输入
+    await ensureAccessAndChild();
     await bootstrapIfNeeded();
     // 先 push 再 pull，减少反复覆盖（服务端 LWW 兜底）
     await pushOnce();
@@ -416,5 +435,7 @@ export function setupAutoSync() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) onWake(); });
   // 周期性拉取，避免长时间不触发事件
   setInterval(() => { void pullOnce(); }, 20000);
+  // 周期性推送，确保本地改动尽快上行
+  setInterval(() => { void pushOnce(); }, 10000);
   void doSync();
 }

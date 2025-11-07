@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from 'svelte-i18n';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { listTasks, listPenaltyRules, ensureDefaultChild, getChildStats, getTodayCompletedTasks, completeTask, applyPenalty, type TaskTemplate, type PenaltyRule } from '$lib/db/dexie';
   import TaskCard from '$lib/components/TaskCard.svelte';
   import SuccessFeedback from '$lib/components/SuccessFeedback.svelte';
@@ -63,6 +63,9 @@
   
   onMount(() => {
     refresh();
+    const onLedger = () => { refresh(); };
+    window.addEventListener('ledger:changed', onLedger);
+    return () => { window.removeEventListener('ledger:changed', onLedger); };
   });
   
   // 长按完成任务
