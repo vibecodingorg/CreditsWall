@@ -9,6 +9,26 @@
     try { accessKey = localStorage.getItem('ACCESS_KEY') || ''; } catch {}
   });
 
+  async function clearLocalData() {
+    try {
+      const keys = ['SYNC_CURSOR', 'LAST_PUSHED_AT', 'DEVICE_ID'];
+      for (const key of keys) {
+        try { localStorage.removeItem(key); } catch {}
+      }
+    } catch {}
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase('kids-points');
+        request.onsuccess = () => resolve();
+        request.onblocked = () => resolve();
+        request.onerror = () => reject(request.error ?? new Error('delete failed'));
+      });
+    } catch (e) {
+      throw e;
+    }
+  }
+
   async function resetAll() {
     msg = null;
     if (confirmText !== 'RESET-ALL') {
@@ -24,7 +44,12 @@
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        msg = '已清空所有数据。请到各设备清理本地缓存后再使用。';
+        try {
+          await clearLocalData();
+          msg = '已清空远程数据并清理本地缓存，请刷新页面后重新配置。';
+        } catch (e) {
+          msg = `远程已清空，但本地清理失败：${(e as any)?.message || e}`;
+        }
       } else {
         msg = `失败：${data?.error || 'unknown error'}`;
       }

@@ -10,6 +10,20 @@ function emit(status: 'idle'|'syncing'|'error'|'offline', detail?: any) {
     ); 
   } catch {}
 }
+
+let authRequestedFlag = false;
+export function clearAuthRequestedFlag() {
+  authRequestedFlag = false;
+}
+
+function requestAuth() {
+  if (authRequestedFlag) return;
+  authRequestedFlag = true;
+  emit('error', { auth: true });
+  try { localStorage.removeItem('ACCESS_KEY'); } catch {}
+  try { window.dispatchEvent(new Event('auth:required')); } catch {}
+}
+
 // --- P2: Push 批量变更上行（首版保守：全量上行，由服务端 LWW 合并） ---
 
 let retryDelay = 1000;
@@ -123,7 +137,7 @@ export async function bootstrapIfNeeded() {
   if (getCursor() > 0) return true;
   try {
     const res = await fetch('/api/bootstrap', { headers: { 'x-access-key': key } });
-    if (res.status === 401) { emit('error', { auth: true }); return false; }
+    if (res.status === 401) { requestAuth(); return false; }
     if (!res.ok) return false;
     const data = await res.json() as BootstrapResponse;
     if (!('ok' in data) || !data.ok) return false;
@@ -162,7 +176,7 @@ export async function pullOnce() {
   const cursor = getCursor();
   try {
     const res = await fetch(`/api/sync/pull?cursor=${cursor}&limit=500`, { headers: { 'x-access-key': key } });
-    if (res.status === 401) { emit('error', { auth: true }); return false; }
+    if (res.status === 401) { requestAuth(); return false; }
     if (!res.ok) return false;
     const data = await res.json() as PullResponse;
     if (!('ok' in data) || !data.ok) return false;
@@ -217,7 +231,7 @@ export async function pushOnce() {
       headers: { 'content-type': 'application/json', 'x-access-key': key },
       body: JSON.stringify({ device_id, changes })
     });
-    if (res.status === 401) { emit('error', { auth: true }); return false; }
+    if (res.status === 401) { requestAuth(); return false; }
     if (!res.ok) return false;
     const data = await res.json() as any;
     if (data && data.ok) {
@@ -240,7 +254,7 @@ export async function ensureAccessAndChild() {
       localStorage.setItem('ACCESS_KEY', input);
       key = input;
     } catch {
-      emit('error', { auth: true });
+      requestAuth();
       return false;
     }
   }
@@ -263,7 +277,7 @@ export async function syncPending() {
     return; 
   }
   const key = getAccessKey();
-  if (!key) { emit('error', { auth: true }); return; }
+  if (!key) { requestAuth(); return; }
   
   const pending = await db.transactions
     .where('sync_status')
@@ -286,6 +300,7 @@ export async function syncPending() {
         body: JSON.stringify(tx)
       });
       
+      if (res.status === 401) { requestAuth(); return; }
       if (!res.ok) throw new Error('bad status');
       
       const data = await res.json() as TxPostResponse;
@@ -321,7 +336,7 @@ export async function syncAll() {
     return { ok: false, error: 'offline' };
   }
   const key = getAccessKey();
-  if (!key) return { ok: false, error: 'unauthorized' };
+  if (!key) { requestAuth(); return { ok: false, error: 'unauthorized' }; }
 
   try {
     emit('syncing', { type: 'full' });
@@ -348,6 +363,7 @@ export async function syncAll() {
       })
     });
 
+    if (res.status === 401) { requestAuth(); return { ok: false, error: 'unauthorized' }; }
     if (!res.ok) throw new Error('sync failed');
 
     const data = await res.json() as SyncPostResponse;

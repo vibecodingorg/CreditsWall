@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { setupI18n, setLang } from '$lib/i18n';
-  import { setupAutoSync, ensureAccessAndChild } from '$lib/sync';
+  import { setupAutoSync, ensureAccessAndChild, clearAuthRequestedFlag } from '$lib/sync';
   import AccessKeyDialog from '$lib/components/AccessKeyDialog.svelte';
   import { onMount } from 'svelte';
   import { t, waitLocale, locale } from 'svelte-i18n';
@@ -21,17 +21,21 @@
       setupAutoSync();
     }
     const handler = () => {};
+    const onAuth = () => { if (!showKeyDialog) showKeyDialog = true; };
     window.addEventListener('ledger:changed', handler);
     window.addEventListener('sync:status', onSync as any);
+    window.addEventListener('auth:required', onAuth);
     return () => {
       window.removeEventListener('ledger:changed', handler);
       window.removeEventListener('sync:status', onSync as any);
+      window.removeEventListener('auth:required', onAuth);
     };
   });
 
   async function onKeySubmit(key: string) {
     try { localStorage.setItem('ACCESS_KEY', key); } catch {}
     showKeyDialog = false;
+    clearAuthRequestedFlag();
     await ensureAccessAndChild();
     setupAutoSync();
   }
