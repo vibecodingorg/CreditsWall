@@ -54,7 +54,9 @@
         ...t,
         completed: completedTaskIds.has(t.id) && t.type === 'daily'
       }))
-      .filter(t => !(t.type === 'single' && completedTaskIds.has(t.id)))
+      // 此时一次性任务如果完成了，会被自动软删除 (active=0)，所以 listTasks 不会返回它
+      // 我们只需要过滤掉那些虽然 active=1 但莫名其妙被标记完成的一次性任务（理论上不应该存在，但为了保险）
+      .filter(t => !(t.type === 'single' && completedTaskIds.has(t.id))) 
       .sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0)); // 已完成排后
     
     // 加载扣分项

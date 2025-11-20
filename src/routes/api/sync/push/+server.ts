@@ -12,28 +12,28 @@ type ChangesPayload = {
 };
 
 function sanitize(table: string, row: any): any {
-  const common = ['id','updated_at','deleted_at','server_version','last_editor','created_at'];
+  const common = ['id', 'updated_at', 'deleted_at', 'server_version', 'last_editor', 'created_at'];
   if (table === 'child') {
-    const allow = [...common, 'name','avatar','color','total_earned','total_spent','total_penalty'];
+    const allow = [...common, 'name', 'avatar', 'color', 'total_earned', 'total_spent', 'total_penalty'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
   }
   if (table === 'task_template') {
-    const allow = [...common, 'title','points','icon','type','active'];
+    const allow = [...common, 'title', 'points', 'icon', 'type', 'active'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
   }
   if (table === 'reward_item') {
-    const allow = [...common, 'title','cost_points','icon','active'];
+    const allow = [...common, 'title', 'cost_points', 'icon', 'active'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
   }
   if (table === 'penalty_rule') {
     // 仅保留数据库存在的列
-    const allow = [...common, 'title','icon','mode','value','basis','rounding','active'];
+    const allow = [...common, 'title', 'icon', 'mode', 'value', 'basis', 'rounding', 'active'];
     return Object.fromEntries(Object.entries(row).filter(([k]) => allow.includes(k)));
   }
   if (table === 'transactions') {
-    const allow = [...common, 'child_id','type','points','ref_id','idempotency_key','created_by','rule_id','calc_basis','calc_snapshot','reason_id','reason_code','reason_category','tags','notes','reversed','reversed_by'];
+    const allow = [...common, 'child_id', 'type', 'points', 'ref_id', 'idempotency_key', 'created_by', 'rule_id', 'calc_basis', 'calc_snapshot', 'reason_id', 'reason_code', 'reason_category', 'tags', 'notes', 'reversed', 'reversed_by'];
     const out: any = {};
-    for (const [k,v] of Object.entries(row)) {
+    for (const [k, v] of Object.entries(row)) {
       if (!allow.includes(k)) continue;
       if (k === 'calc_snapshot' && v && typeof v !== 'string') out[k] = JSON.stringify(v);
       else if (k === 'tags' && Array.isArray(v)) out[k] = JSON.stringify(v);
@@ -51,8 +51,10 @@ async function recalcChildTotals(db: D1Database, childId: string) {
        COALESCE(SUM(CASE WHEN type IN ('task_complete','issue','adjust') AND points > 0 THEN points ELSE 0 END), 0) AS earned,
        COALESCE(SUM(CASE WHEN type = 'spend' THEN -points ELSE 0 END), 0) AS spent,
        COALESCE(SUM(CASE WHEN type = 'penalty' THEN -points ELSE 0 END), 0) AS penalty
-     FROM transactions WHERE child_id = ? AND deleted_at IS NULL`
+     FROM transactions WHERE child_id = ? AND deleted_at IS NULL AND (reversed IS NULL OR reversed = 0)`
   ).bind(childId).first<{ earned: number; spent: number; penalty: number }>();
+
+
 
   const nowIso = new Date().toISOString();
   const ver = await nextVersion(db);

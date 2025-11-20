@@ -6,7 +6,7 @@ export async function listTasks(): Promise<TaskTemplate[]> {
   return db.tasks.filter((t: any) => !t.deleted_at).sortBy('created_at');
 }
 
-export async function addTask(input: { title: string; points: number; icon?: string; type?: 'single'|'daily' }): Promise<TaskTemplate> {
+export async function addTask(input: { title: string; points: number; icon?: string; type?: 'single' | 'daily' }): Promise<TaskTemplate> {
   const now = new Date().toISOString();
   const t: TaskTemplate = { id: crypto.randomUUID(), title: input.title, points: input.points, icon: input.icon, type: input.type || 'daily', active: 1, created_at: now } as any;
   (t as any).updated_at = now;
@@ -47,7 +47,7 @@ export async function listPenaltyRules(): Promise<PenaltyRule[]> {
   return ((db as any).penalties?.filter((p: any) => !p.deleted_at).sortBy('created_at')) ?? [];
 }
 
-export async function addPenaltyRule(input: { title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up' }): Promise<PenaltyRule> {
+export async function addPenaltyRule(input: { title: string; icon?: string; mode: 'fixed' | 'percent'; value: number; basis?: 'current_balance' | 'today_earned' | 'task_points'; rounding?: 'down' | 'nearest' | 'up' }): Promise<PenaltyRule> {
   const now = new Date().toISOString();
   const p: PenaltyRule = { id: crypto.randomUUID(), title: input.title, icon: input.icon, mode: input.mode, value: input.value, basis: input.basis, rounding: input.rounding, active: 1, created_at: now } as any;
   (p as any).updated_at = now;
@@ -83,16 +83,16 @@ export async function addChild(input: { name: string; color?: string; avatar?: s
   await db.children.add(child);
   return child;
 }
-export interface TaskTemplate { id: string; title: string; points: number; icon?: string; type?: 'single'|'daily'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
+export interface TaskTemplate { id: string; title: string; points: number; icon?: string; type?: 'single' | 'daily'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
 export interface RewardItem { id: string; title: string; cost_points: number; icon?: string; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
-export interface PenaltyRule { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: 'current_balance'|'today_earned'|'task_points'; rounding?: 'down'|'nearest'|'up'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
+export interface PenaltyRule { id: string; title: string; icon?: string; mode: 'fixed' | 'percent'; value: number; basis?: 'current_balance' | 'today_earned' | 'task_points'; rounding?: 'down' | 'nearest' | 'up'; active: number; created_at: string; updated_at?: string; deleted_at?: string; server_version?: number; last_editor?: string }
 export type TxType = 'issue' | 'spend' | 'reverse' | 'adjust' | 'task_complete' | 'penalty';
 export interface Transaction {
   id: string; child_id: string; type: TxType; points: number; ref_id?: string;
-  idempotency_key: string; created_at: string; created_by: 'local_device'|'parent'|'child';
-  rule_id?: string; calc_basis?: 'current_balance'|'today_earned'|'task_points'; calc_snapshot?: any;
+  idempotency_key: string; created_at: string; created_by: 'local_device' | 'parent' | 'child';
+  rule_id?: string; calc_basis?: 'current_balance' | 'today_earned' | 'task_points'; calc_snapshot?: any;
   reason_id?: string; reason_code?: string; reason_category?: string; tags?: string[]; notes?: string
-  sync_status?: 'pending'|'synced'|'error'; server_version?: number; updated_at?: string; deleted_at?: string; last_editor?: string;
+  sync_status?: 'pending' | 'synced' | 'error'; server_version?: number; updated_at?: string; deleted_at?: string; last_editor?: string;
   reversed?: boolean; reversed_by?: string; // 标记是否已撤销，以及撤销交易的ID
 }
 export interface ReasonCatalog { id: string; code: string; title: string; category: string; is_preset: number; active: number; created_at: string }
@@ -157,13 +157,13 @@ export async function ensureDefaultChild(): Promise<Child> {
 export async function getChildStats(childId: string): Promise<{ balance: number; totalEarned: number; totalSpent: number; totalPenalty: number }> {
   const child = await db.children.get(childId);
   if (!child) return { balance: 0, totalEarned: 0, totalSpent: 0, totalPenalty: 0 };
-  
+
   const totalEarned = child.total_earned || 0;
   const totalSpent = child.total_spent || 0;
   const totalPenalty = child.total_penalty || 0;
   // 剩余积分 = 积分总额 - 已使用积分 - 扣分总额
   const balance = totalEarned - totalSpent - totalPenalty;
-  
+
   return { balance, totalEarned, totalSpent, totalPenalty };
 }
 
@@ -171,11 +171,11 @@ export async function getChildStats(childId: string): Promise<{ balance: number;
 export async function updateChildStats(childId: string, earnedDelta: number, spentDelta: number, penaltyDelta: number = 0): Promise<void> {
   const child = await db.children.get(childId);
   if (!child) return;
-  
+
   const newEarned = (child.total_earned || 0) + earnedDelta;
   const newSpent = (child.total_spent || 0) + spentDelta;
   const newPenalty = (child.total_penalty || 0) + penaltyDelta;
-  
+
   await db.children.update(childId, {
     total_earned: newEarned,
     total_spent: newSpent,
@@ -197,7 +197,7 @@ export async function getTodayCompletedTasks(childId: string): Promise<Set<strin
     .where('child_id').equals(childId)
     .and(tx => tx.type === 'task_complete' && tx.created_at >= todayStart)
     .toArray();
-  
+
   return new Set(completions.map(tx => tx.ref_id).filter(Boolean) as string[]);
 }
 
@@ -218,10 +218,16 @@ export async function completeTask(childId: string, taskId: string, points: numb
     reversed: false
   };
   (tx as any).updated_at = now;
-  
+
   await db.transactions.add(tx);
   await updateChildStats(childId, Math.abs(points), 0, 0);
-  
+
+  // 检查任务类型，如果是一次性任务，则自动删除（软删除）
+  const task = await db.tasks.get(taskId);
+  if (task && task.type === 'single') {
+    await deleteTask(taskId);
+  }
+
   return tx;
 }
 
@@ -242,11 +248,11 @@ export async function applyPenalty(childId: string, penaltyId: string, points: n
     reversed: false
   };
   (tx as any).updated_at = now;
-  
+
   await db.transactions.add(tx);
   // 扣分记入 penaltyDelta
   await updateChildStats(childId, 0, 0, Math.abs(points));
-  
+
   return tx;
 }
 
@@ -267,11 +273,11 @@ export async function redeemReward(childId: string, rewardId: string, cost: numb
     reversed: false
   };
   (tx as any).updated_at = now;
-  
+
   await db.transactions.add(tx);
   // 兑换消耗记入 spentDelta
   await updateChildStats(childId, 0, Math.abs(cost), 0);
-  
+
   return tx;
 }
 
@@ -289,11 +295,11 @@ export async function reverseTransaction(childId: string, originalTx: Transactio
   if (originalTx.reversed) {
     throw new Error('该交易已被撤销');
   }
-  
+
   if (originalTx.type === 'reverse') {
     throw new Error('撤销记录不能再次撤销');
   }
-  
+
   // 创建撤销交易
   const now = new Date().toISOString();
   const reverseTx: Transaction = {
@@ -310,16 +316,16 @@ export async function reverseTransaction(childId: string, originalTx: Transactio
     reversed: false
   };
   (reverseTx as any).updated_at = now;
-  
+
   await db.transactions.add(reverseTx);
-  
+
   // 标记原交易为已撤销
   await db.transactions.update(originalTx.id, {
     reversed: true,
     reversed_by: reverseTx.id,
     updated_at: new Date().toISOString()
   });
-  
+
   // 更新统计：根据原交易类型撤销相应的统计
   if (originalTx.type === 'task_complete') {
     // 撤销任务完成：减少 total_earned
@@ -331,6 +337,6 @@ export async function reverseTransaction(childId: string, originalTx: Transactio
     // 撤销扣分：减少 total_penalty
     await updateChildStats(childId, 0, 0, -Math.abs(originalTx.points));
   }
-  
+
   return reverseTx;
 }
