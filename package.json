@@ -12,6 +12,7 @@
     "cf:deploy": "npm run build:cf && npx wrangler pages deploy .svelte-kit/cloudflare --project-name=credits-wall"
   },
   "dependencies": {
+    "canvas-confetti": "^1.9.4",
     "dexie": "^4.0.8",
     "html-to-image": "^1.11.11",
     "lucide-svelte": "^0.552.0",

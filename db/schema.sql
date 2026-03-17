@@ -78,3 +78,10 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_tx_child_time ON transactions(child_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tx_idem ON transactions(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_tx_ref_id ON transactions(ref_id);
+
+CREATE TABLE IF NOT EXISTS sync_meta (
+  id TEXT PRIMARY KEY,
+  last_cursor INTEGER NOT NULL DEFAULT 0,
+  last_recalc_at TEXT
+);

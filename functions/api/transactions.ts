@@ -1,10 +1,16 @@
 /// <reference types="@cloudflare/workers-types" />
+import { advanceTotals } from '../_lib/totals';
 
 /**
  * GET /api/transactions?child_id=xxx
  * 获取交易记录列表
  */
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
+  const accessKey = request.headers.get('x-access-key');
+  const expected = (env as any)?.ACCESS_KEY as string | undefined;
+  if (!expected || accessKey !== expected) {
+    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401 });
+  }
   const url = new URL(request.url);
   const child_id = url.searchParams.get('child_id');
   const db = (env as any).DB as D1Database;
@@ -29,18 +35,34 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
  * 创建新的交易记录
  */
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
+  const accessKey = request.headers.get('x-access-key');
+  const expected = (env as any)?.ACCESS_KEY as string | undefined;
+  if (!expected || accessKey !== expected) {
+    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401 });
+  }
   const db = (env as any).DB as D1Database;
   const tx = (await request.json()) as any;
+  // 单 child 强制为 'main'
+  tx.child_id = 'main';
   
   try {
+    const nowIso = new Date().toISOString();
+    const ver = await nextVersion(db);
+    // 确保 main child 存在（开发阶段允许自动创建）
+    await db.prepare(
+      `INSERT OR IGNORE INTO child (id, name, avatar, color, total_earned, total_spent, total_penalty, created_at)
+       VALUES ('main', COALESCE((SELECT name FROM child WHERE id='main'),'孩子'), NULL, NULL, 0, 0, 0, COALESCE((SELECT created_at FROM child WHERE id='main'), datetime('now')))
+      `
+    ).run();
     // 插入交易记录
     await db.prepare(
       `INSERT INTO transactions (
         id, child_id, type, points, ref_id, idempotency_key, 
         created_at, created_by, rule_id, calc_basis, calc_snapshot, 
         reason_id, reason_code, reason_category, tags, notes,
-        reversed, reversed_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        reversed, reversed_by,
+        updated_at, server_version, last_editor
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       tx.id,
       tx.child_id,
@@ -59,21 +81,36 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       tx.tags ? JSON.stringify(tx.tags) : null,
       tx.notes ?? null,
       tx.reversed ? 1 : 0,
-      tx.reversed_by ?? null
+      tx.reversed_by ?? null,
+      nowIso,
+      ver,
+      null
     ).run();
     
-    // 更新 child 统计
-    await updateChildStats(db, tx);
+    if (tx.type === 'reverse' && tx.ref_id) {
+      await db.prepare(
+        `UPDATE transactions SET reversed = 1, reversed_by = ?, updated_at = ?, server_version = ? WHERE id = ?`
+      ).bind(tx.id, new Date().toISOString(), await nextVersion(db), tx.ref_id).run();
+    }
+
+    await advanceTotals(db, 'main');
     
     return new Response(
-      JSON.stringify({ ok: true, server_version: Date.now() }), 
+      JSON.stringify({ ok: true, server_version: ver }), 
       { headers: { 'content-type': 'application/json' } }
     );
   } catch (e: any) {
     const msg = String(e?.message || 'error');
     if (msg.includes('UNIQUE') && msg.includes('idempotency_key')) {
+      let existingVer = 0;
+      try {
+        const row = await db.prepare(
+          'SELECT server_version AS v FROM transactions WHERE idempotency_key = ?'
+        ).bind(tx.idempotency_key).first<{ v: number }>();
+        existingVer = Number(row?.v || 0);
+      } catch {}
       return new Response(
-        JSON.stringify({ ok: true, duplicate: true, server_version: Date.now() }), 
+        JSON.stringify({ ok: true, duplicate: true, server_version: existingVer }), 
         { headers: { 'content-type': 'application/json' } }
       );
     }
@@ -87,49 +124,14 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 /**
  * 更新 child 统计字段
  */
-async function updateChildStats(db: D1Database, tx: any) {
-  if (tx.type === 'task_complete') {
-    // 任务完成：增加 total_earned
-    await db.prepare(
-      `UPDATE child SET total_earned = total_earned + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'spend') {
-    // 兑换消耗：增加 total_spent
-    await db.prepare(
-      `UPDATE child SET total_spent = total_spent + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'penalty') {
-    // 扣分：增加 total_penalty
-    await db.prepare(
-      `UPDATE child SET total_penalty = total_penalty + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'reverse' && tx.ref_id) {
-    // 撤销：反向调整统计
-    const originalTx = await db.prepare(
-      `SELECT type, points FROM transactions WHERE id = ?`
-    ).bind(tx.ref_id).first() as any;
-    
-    if (originalTx) {
-      const absPoints = Math.abs(Number(originalTx.points));
-      
-      if (originalTx.type === 'task_complete') {
-        await db.prepare(
-          `UPDATE child SET total_earned = total_earned - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      } else if (originalTx.type === 'spend') {
-        await db.prepare(
-          `UPDATE child SET total_spent = total_spent - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      } else if (originalTx.type === 'penalty') {
-        await db.prepare(
-          `UPDATE child SET total_penalty = total_penalty - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      }
-      
-      // 标记原交易为已撤销
-      await db.prepare(
-        `UPDATE transactions SET reversed = 1, reversed_by = ? WHERE id = ?`
-      ).bind(tx.id, tx.ref_id).run();
-    }
+// totals are recalculated incrementally via advanceTotals
+
+async function nextVersion(db: D1Database): Promise<number> {
+  try {
+    await db.prepare('UPDATE version_seq SET current = current + 1').run();
+    const row = await db.prepare('SELECT current AS v FROM version_seq').first<{ v: number }>();
+    return Number(row?.v || 0);
+  } catch {
+    return Date.now();
   }
 }

@@ -11,7 +11,7 @@
 
   async function clearLocalData() {
     try {
-      const keys = ['SYNC_CURSOR', 'LAST_PUSHED_AT', 'DEVICE_ID'];
+      const keys = ['SYNC_CURSOR', 'LAST_PUSHED_AT', 'DEVICE_ID', 'BOOTSTRAP_V2_DONE', 'PENALTY_FORCE_SYNC_V1'];
       for (const key of keys) {
         try { localStorage.removeItem(key); } catch {}
       }

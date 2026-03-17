@@ -2,22 +2,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 
-async function getCurrentCursor(db: D1Database): Promise<number> {
-  try {
-    const v = await db.prepare('SELECT current AS v FROM version_seq').first<{ v: number }>();
-    if (v && typeof v.v === 'number') return v.v;
-  } catch {}
-  const tables = ['child','task_template','reward_item','penalty_rule','transactions'];
-  let maxv = 0;
-  for (const t of tables) {
-    try {
-      const r = await db.prepare(`SELECT COALESCE(MAX(server_version),0) AS v FROM ${t}`).first<{ v: number }>();
-      maxv = Math.max(maxv, Number(r?.v || 0));
-    } catch {}
-  }
-  return maxv;
-}
-
 export const GET: RequestHandler = async ({ platform, request, url }) => {
   const accessKey = request.headers.get('x-access-key');
   const expected = ((platform as any)?.env as any)?.ACCESS_KEY as string | undefined;
@@ -41,18 +25,38 @@ export const GET: RequestHandler = async ({ platform, request, url }) => {
     const penalties = await db.prepare(`SELECT * FROM penalty_rule ${where} ${order} ${lim}`).bind(cursor).all();
     const transactions = await db.prepare(`SELECT * FROM transactions ${where} ${order} ${lim}`).bind(cursor).all();
 
-    const newCursor = await getCurrentCursor(db);
+    const rows = {
+      child: child.results || [],
+      task_template: tasks.results || [],
+      reward_item: rewards.results || [],
+      penalty_rule: penalties.results || [],
+      transactions: transactions.results || []
+    };
+
+    let maxSeen = cursor;
+    let minLimited: number | null = null;
+    let hasMore = false;
+    const takeLastVer = (arr: any[]) => Number(arr[arr.length - 1]?.server_version || 0);
+
+    for (const key of Object.keys(rows) as (keyof typeof rows)[]) {
+      const arr = rows[key];
+      if (arr.length > 0) {
+        maxSeen = Math.max(maxSeen, takeLastVer(arr));
+      }
+      if (arr.length === limit) {
+        hasMore = true;
+        const lastVer = takeLastVer(arr);
+        minLimited = minLimited === null ? lastVer : Math.min(minLimited, lastVer);
+      }
+    }
+
+    const nextCursor = hasMore && minLimited !== null ? Math.max(cursor, minLimited) : maxSeen;
 
     return json({
       ok: true,
-      cursor: newCursor,
-      changes: {
-        child: child.results || [],
-        task_template: tasks.results || [],
-        reward_item: rewards.results || [],
-        penalty_rule: penalties.results || [],
-        transactions: transactions.results || []
-      }
+      cursor: nextCursor,
+      has_more: hasMore,
+      changes: rows
     });
   } catch (e: any) {
     return json({ ok: false, error: String(e?.message || 'pull error') }, { status: 500 });

@@ -35,12 +35,13 @@ function getAccessKey(): string | null {
 
 type TxPostResponse = { ok: boolean; duplicate?: boolean; server_version?: number };
 type SyncGetResponse = { ok: true; data: { child: any|null; tasks: any[]; rewards: any[]; penalties: any[]; transactions: any[] } } | { ok: false; error: string };
-type SyncPostResponse = { ok: boolean; synced?: boolean; timestamp?: number; error?: string };
+type SyncPostResponse = { ok: boolean; synced?: boolean; timestamp?: number; server_cursor?: number; error?: string };
 
 // --- P1: Pull/Bootstrap 增量同步辅助 ---
 type PullResponse = {
   ok: true;
   cursor: number;
+  has_more?: boolean;
   changes: {
     child: any[];
     task_template: any[];
@@ -65,6 +66,12 @@ type BootstrapResponse = {
 const CURSOR_KEY = 'SYNC_CURSOR';
 function getCursor(): number { try { return Number(localStorage.getItem(CURSOR_KEY) || '0'); } catch { return 0; } }
 function setCursor(v: number) { try { localStorage.setItem(CURSOR_KEY, String(v)); } catch {} }
+const BOOTSTRAP_DONE_KEY = 'BOOTSTRAP_V2_DONE';
+function isBootstrapDone(): boolean { try { return localStorage.getItem(BOOTSTRAP_DONE_KEY) === '1'; } catch { return false; } }
+function setBootstrapDone() { try { localStorage.setItem(BOOTSTRAP_DONE_KEY, '1'); } catch {} }
+const PENALTY_FORCE_SYNC_KEY = 'PENALTY_FORCE_SYNC_V1';
+function shouldForcePenaltySync(): boolean { try { return localStorage.getItem(PENALTY_FORCE_SYNC_KEY) !== '1'; } catch { return true; } }
+function setPenaltyForceSynced() { try { localStorage.setItem(PENALTY_FORCE_SYNC_KEY, '1'); } catch {} }
 const DEVICE_ID_KEY = 'DEVICE_ID';
 function getDeviceId(): string {
   try {
@@ -134,7 +141,24 @@ async function mergeRow(table: 'child'|'task_template'|'reward_item'|'penalty_ru
 export async function bootstrapIfNeeded() {
   const key = getAccessKey();
   if (!key) return false;
-  if (getCursor() > 0) return true;
+  const cursor = getCursor();
+  if (cursor > 0 && isBootstrapDone()) return true;
+  let hasLocal = false;
+  try {
+    const counts = await Promise.all([
+      db.children.count(),
+      db.tasks.count(),
+      db.rewards.count(),
+      (db as any).penalties ? (db as any).penalties.count() : Promise.resolve(0),
+      db.transactions.count()
+    ]);
+    hasLocal = counts.some(c => c > 0);
+    if (hasLocal) {
+      let pushed = false;
+      try { pushed = await pushOnce({ skipPull: true }); } catch {}
+      if (!pushed) return true;
+    }
+  } catch {}
   try {
     const res = await fetch('/api/bootstrap', { headers: { 'x-access-key': key } });
     if (res.status === 401) { requestAuth(); return false; }
@@ -149,21 +173,39 @@ export async function bootstrapIfNeeded() {
       ...(((db as any).penalties) ? [(db as any).penalties] : [])
     ];
     await db.transaction('rw', tables1 as any, async () => {
-      await db.children.clear();
-      await db.tasks.clear();
-      await db.rewards.clear();
-      if ((db as any).penalties) await (db as any).penalties.clear();
-      await db.transactions.clear();
-      if (data.data.child) await db.children.put(data.data.child as any);
-      if (data.data.task_template?.length) await db.tasks.bulkPut(data.data.task_template as any);
-      if (data.data.reward_item?.length) await db.rewards.bulkPut(data.data.reward_item as any);
-      if (data.data.penalty_rule?.length && (db as any).penalties) await (db as any).penalties.bulkPut(data.data.penalty_rule as any);
-      if (data.data.transactions?.length) await db.transactions.bulkPut(
-        (data.data.transactions as any[]).map(x => ({ ...x, sync_status: 'synced' }))
-      );
+      if (!hasLocal) {
+        await db.children.clear();
+        await db.tasks.clear();
+        await db.rewards.clear();
+        if ((db as any).penalties) await (db as any).penalties.clear();
+        await db.transactions.clear();
+      }
+      if (data.data.child) {
+        if (hasLocal) await mergeRow('child', data.data.child);
+        else await db.children.put(data.data.child as any);
+      }
+      if (data.data.task_template?.length) {
+        if (hasLocal) for (const row of data.data.task_template) await mergeRow('task_template', row);
+        else await db.tasks.bulkPut(data.data.task_template as any);
+      }
+      if (data.data.reward_item?.length) {
+        if (hasLocal) for (const row of data.data.reward_item) await mergeRow('reward_item', row);
+        else await db.rewards.bulkPut(data.data.reward_item as any);
+      }
+      if (data.data.penalty_rule?.length && (db as any).penalties) {
+        if (hasLocal) for (const row of data.data.penalty_rule) await mergeRow('penalty_rule', row);
+        else await (db as any).penalties.bulkPut(data.data.penalty_rule as any);
+      }
+      if (data.data.transactions?.length) {
+        if (hasLocal) for (const row of data.data.transactions) await mergeRow('transactions', row);
+        else await db.transactions.bulkPut(
+          (data.data.transactions as any[]).map(x => ({ ...x, sync_status: 'synced' }))
+        );
+      }
     });
     try { window.dispatchEvent(new Event('ledger:changed')); } catch {}
     setCursor((data as any).cursor || 0);
+    setBootstrapDone();
     return true;
   } catch {
     return false;
@@ -173,30 +215,45 @@ export async function bootstrapIfNeeded() {
 export async function pullOnce() {
   const key = getAccessKey();
   if (!key) return false;
-  const cursor = getCursor();
+  let cursor = getCursor();
+  let loops = 0;
   try {
-    const res = await fetch(`/api/sync/pull?cursor=${cursor}&limit=500`, { headers: { 'x-access-key': key } });
-    if (res.status === 401) { requestAuth(); return false; }
-    if (!res.ok) return false;
-    const data = await res.json() as PullResponse;
-    if (!('ok' in data) || !data.ok) return false;
-    const changes = (data as any).changes || {};
-    const tables2 = [
-      db.children,
-      db.tasks,
-      db.rewards,
-      db.transactions,
-      ...(((db as any).penalties) ? [(db as any).penalties] : [])
-    ];
-    await db.transaction('rw', tables2 as any, async () => {
-      for (const row of (changes.child || [])) await mergeRow('child', row);
-      for (const row of (changes.task_template || [])) await mergeRow('task_template', row);
-      for (const row of (changes.reward_item || [])) await mergeRow('reward_item', row);
-      for (const row of (changes.penalty_rule || [])) await mergeRow('penalty_rule', row);
-      for (const row of (changes.transactions || [])) await mergeRow('transactions', row);
-    });
-    try { window.dispatchEvent(new Event('ledger:changed')); } catch {}
-    setCursor((data as any).cursor || cursor);
+    while (true) {
+      const res = await fetch(`/api/sync/pull?cursor=${cursor}&limit=500`, { headers: { 'x-access-key': key } });
+      if (res.status === 401) { requestAuth(); return false; }
+      if (!res.ok) return false;
+      const data = await res.json() as PullResponse;
+      if (!('ok' in data) || !data.ok) return false;
+      const changes = (data as any).changes || {};
+      const tables2 = [
+        db.children,
+        db.tasks,
+        db.rewards,
+        db.transactions,
+        ...(((db as any).penalties) ? [(db as any).penalties] : [])
+      ];
+      await db.transaction('rw', tables2 as any, async () => {
+        for (const row of (changes.child || [])) await mergeRow('child', row);
+        for (const row of (changes.task_template || [])) await mergeRow('task_template', row);
+        for (const row of (changes.reward_item || [])) await mergeRow('reward_item', row);
+        for (const row of (changes.penalty_rule || [])) await mergeRow('penalty_rule', row);
+        for (const row of (changes.transactions || [])) await mergeRow('transactions', row);
+      });
+      try { window.dispatchEvent(new Event('ledger:changed')); } catch {}
+
+      const prevCursor = cursor;
+      const nextCursor = Number((data as any).cursor || cursor);
+      const hasMore = Boolean((data as any).has_more);
+      if (nextCursor > cursor) {
+        cursor = nextCursor;
+        setCursor(cursor);
+      }
+
+      loops += 1;
+      if (!hasMore) break;
+      if (loops > 50) break;
+      if (nextCursor <= prevCursor && hasMore) break;
+    }
     return true;
   } catch {
     return false;
@@ -208,18 +265,35 @@ const LAST_PUSHED_KEY = 'LAST_PUSHED_AT';
 function getLastPushed(): string { try { return localStorage.getItem(LAST_PUSHED_KEY) || '1970-01-01T00:00:00.000Z'; } catch { return '1970-01-01T00:00:00.000Z'; } }
 function setLastPushed(iso: string) { try { localStorage.setItem(LAST_PUSHED_KEY, iso); } catch {} }
 
-export async function pushOnce() {
+export async function pushOnce(opts?: { skipPull?: boolean }) {
   const key = getAccessKey();
   if (!key) return false;
   const device_id = getDeviceId();
   try {
     // 仅推“变更集”：updated_at > last_pushed 或者存在墓碑
     const last = getLastPushed();
-    const after = (arr: any[]) => arr.filter(r => (r.updated_at && new Date(r.updated_at).getTime() > new Date(last).getTime()) || r.deleted_at);
+    const lastTs = new Date(last).getTime();
+    const shouldSend = (r: any) => {
+      if (r?.deleted_at) return true;
+      const raw = r?.updated_at || r?.created_at || '';
+      const t = Date.parse(raw);
+      if (!Number.isFinite(t)) return true;
+      return t > lastTs;
+    };
+    const after = (arr: any[]) => arr.filter(shouldSend);
     const child = after(await db.children.toArray().catch(() => []));
     const task_template = after(await db.tasks.toArray().catch(() => []));
     const reward_item = after(await db.rewards.toArray().catch(() => []));
-    const penaltiesTbl = after((db as any).penalties ? await (db as any).penalties.toArray() : []);
+    const rawPenalties = (db as any).penalties ? await (db as any).penalties.toArray() : [];
+    const forcePenalties = shouldForcePenaltySync();
+    const penaltiesTbl = rawPenalties
+      .filter((r: any) => forcePenalties || shouldSend(r))
+      .map((r: any) => {
+        const out = { ...r };
+        if (!('deleted_at' in out)) out.deleted_at = null;
+        if (forcePenalties && !out.deleted_at) out.updated_at = new Date().toISOString();
+        return out;
+      });
     const transactions = after(await db.transactions.toArray());
 
     const changes = { child, task_template, reward_item, penalty_rule: penaltiesTbl, transactions };
@@ -236,7 +310,10 @@ export async function pushOnce() {
     const data = await res.json() as any;
     if (data && data.ok) {
       setLastPushed(new Date().toISOString());
-      try { await pullOnce(); } catch {}
+      if (forcePenalties) setPenaltyForceSynced();
+      if (!opts?.skipPull) {
+        try { await pullOnce(); } catch {}
+      }
       return true;
     }
     return false;
@@ -258,13 +335,25 @@ export async function ensureAccessAndChild() {
       return false;
     }
   }
-  // 确保本地存在默认 child，如无则创建并通过 push 上行
+  // 优先从服务器获取，避免本地空数据覆盖服务端 totals
   const existing = await db.children.toCollection().first();
-  if (!existing) {
-    const now = new Date().toISOString();
-    await db.children.add({ id: 'main', name: '小朋友', created_at: now, updated_at: now } as any);
-    await pushOnce();
-  }
+  if (existing) return true;
+
+  try {
+    if (getCursor() > 0) {
+      await pullOnce();
+    } else {
+      await bootstrapIfNeeded();
+    }
+  } catch {}
+
+  const after = await db.children.toCollection().first();
+  if (after) return true;
+
+  // 服务端也为空时才创建默认 child 并上行
+  const now = new Date().toISOString();
+  await db.children.add({ id: 'main', name: '小朋友', created_at: now, updated_at: now } as any);
+  await pushOnce({ skipPull: true });
   return true;
 }
 
@@ -374,6 +463,9 @@ export async function syncAll() {
       for (const id of allTxIds) {
         await db.transactions.update(id, { sync_status: 'synced' });
       }
+      if ((data as any).server_cursor) {
+        setCursor(Number((data as any).server_cursor));
+      }
       
       emit('idle');
       return { ok: true };
@@ -457,11 +549,9 @@ export function setupAutoSync() {
     // 先确保有密钥/child，引导用户输入
     await ensureAccessAndChild();
     await bootstrapIfNeeded();
-    // 先 push 再 pull，减少反复覆盖（服务端 LWW 兜底）
-    await pushOnce();
+    // 先 push 再 pull，避免拉取旧数据覆盖本地
+    await pushOnce({ skipPull: true });
     await pullOnce();
-    // 兼容旧的交易逐条上送路径（保留直到 push 精细化）
-    await syncPending();
   };
   const onWake = () => { void doSync(); };
   window.addEventListener('online', onWake);

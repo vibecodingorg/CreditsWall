@@ -2,7 +2,7 @@
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { listTasks, addTask, toggleTaskActive, listRewards, addReward, toggleRewardActive, listPenaltyRules, addPenaltyRule, togglePenaltyRuleActive, deleteTask, deleteReward, deletePenaltyRule } from '$lib/db/dexie';
-  import { pullOnce } from '$lib/sync';
+  import { pullOnce, pushOnce } from '$lib/sync';
   import { Users, Sparkles, Gift, AlertCircle, Plus, Trash2, Settings2 as Settings } from 'lucide-svelte';
   import IconPicker from '$lib/components/IconPicker.svelte';
   import { getIcon } from '$lib/icons';
@@ -17,6 +17,7 @@
   let penalties: { id: string; title: string; icon?: string; mode: 'fixed'|'percent'; value: number; basis?: string; rounding?: string; active: number }[] = [];
   let newPenalty = { title: '', icon: '', mode: 'fixed' as 'fixed'|'percent', value: 5, basis: 'current_balance', rounding: 'down' };
   let showPenaltyIconPicker = false;
+  let penaltySyncing = false;
   async function refreshTasks() { tasks = await listTasks(); }
   async function refreshRewards() { rewards = await listRewards(); }
   async function refreshPenalties() { penalties = await listPenaltyRules(); }
@@ -93,6 +94,20 @@
     await refreshRewards();
     await refreshPenalties();
   }
+  async function manualPushPenalties() {
+    penaltySyncing = true;
+    try {
+      try { localStorage.removeItem('PENALTY_FORCE_SYNC_V1'); } catch {}
+      await pushOnce({ skipPull: true });
+      await pullOnce();
+      await refreshPenalties();
+      alert('扣分项已同步到服务端');
+    } catch (e: any) {
+      alert(`同步失败：${e?.message || e}`);
+    } finally {
+      penaltySyncing = false;
+    }
+  }
 </script>
 
 <section class="p-6 space-y-6">
@@ -100,6 +115,9 @@
     <Settings size={28} class="text-gray-700" />
     {$t('settings.title')}
     <button type="button" class="ml-auto px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" on:click={manualPull}>手动拉取</button>
+    <button type="button" class="px-3 py-2 text-sm bg-rose-100 hover:bg-rose-200 rounded-lg disabled:opacity-50" on:click={manualPushPenalties} disabled={penaltySyncing}>
+      {penaltySyncing ? '同步中…' : '同步扣分项'}
+    </button>
   </h2>
   
   <!-- 孩子设置（单 child） -->

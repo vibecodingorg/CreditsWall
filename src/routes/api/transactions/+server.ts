@@ -10,6 +10,7 @@ async function nextVersion(db: D1Database): Promise<number> {
 /// <reference types="@cloudflare/workers-types" />
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
+import { advanceTotals } from '$lib/server/totals';
 
 // GET /api/transactions?child_id=xxx
 export const GET: RequestHandler = async ({ url, platform, request }) => {
@@ -91,54 +92,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       null
     ).run();
 
-    await updateChildStats(db, tx);
+    if (tx.type === 'reverse' && tx.ref_id) {
+      const txVer = await nextVersion(db);
+      const nowIso = new Date().toISOString();
+      await db.prepare(
+        `UPDATE transactions SET reversed = 1, reversed_by = ?, updated_at = ?, server_version = ? WHERE id = ?`
+      ).bind(tx.id, nowIso, txVer, tx.ref_id).run();
+    }
 
-    return json({ ok: true, server_version: Date.now() });
+    await advanceTotals(db, 'main');
+
+    return json({ ok: true, server_version: ver });
   } catch (e: any) {
     const msg = String(e?.message || 'error');
     if (msg.includes('UNIQUE') && msg.includes('idempotency_key')) {
-      return json({ ok: true, duplicate: true, server_version: Date.now() });
+      let existingVer = 0;
+      try {
+        const row = await db.prepare(
+          'SELECT server_version AS v FROM transactions WHERE idempotency_key = ?'
+        ).bind(tx.idempotency_key).first<{ v: number }>();
+        existingVer = Number(row?.v || 0);
+      } catch {}
+      return json({ ok: true, duplicate: true, server_version: existingVer });
     }
     return json({ ok: false, error: msg }, { status: 400 });
   }
 };
 
-async function updateChildStats(db: D1Database, tx: any) {
-  if (tx.type === 'task_complete') {
-    await db.prepare(
-      `UPDATE child SET total_earned = total_earned + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'spend') {
-    await db.prepare(
-      `UPDATE child SET total_spent = total_spent + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'penalty') {
-    await db.prepare(
-      `UPDATE child SET total_penalty = total_penalty + ? WHERE id = ?`
-    ).bind(Math.abs(tx.points), tx.child_id).run();
-  } else if (tx.type === 'reverse' && tx.ref_id) {
-    const originalTx = await db.prepare(
-      `SELECT type, points FROM transactions WHERE id = ?`
-    ).bind(tx.ref_id).first() as any;
-
-    if (originalTx) {
-      const absPoints = Math.abs(Number(originalTx.points));
-      if (originalTx.type === 'task_complete') {
-        await db.prepare(
-          `UPDATE child SET total_earned = total_earned - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      } else if (originalTx.type === 'spend') {
-        await db.prepare(
-          `UPDATE child SET total_spent = total_spent - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      } else if (originalTx.type === 'penalty') {
-        await db.prepare(
-          `UPDATE child SET total_penalty = total_penalty - ? WHERE id = ?`
-        ).bind(absPoints, tx.child_id).run();
-      }
-      await db.prepare(
-        `UPDATE transactions SET reversed = 1, reversed_by = ? WHERE id = ?`
-      ).bind(tx.id, tx.ref_id).run();
-    }
-  }
-}
+// totals are recalculated incrementally via advanceTotals
