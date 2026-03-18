@@ -96,7 +96,7 @@
     const points = penalty.mode === 'fixed' ? penalty.value : Math.floor(balance * penalty.value / 100);
     
     confirmTitle = '确认扣分';
-    confirmMessage = `「${penalty.title}」将扣除 -${points} 积分`;
+    confirmMessage = `「${penalty.title}」将扣除 ${points} 积分`;
     confirmAction = () => handleApplyPenalty(penalty, points);
     showConfirm = true;
   }
@@ -104,7 +104,7 @@
   async function handleApplyPenalty(penalty: PenaltyRule, points: number) {
     await applyPenalty(childId, penalty.id, points, penalty.title);
     
-    lastPoints = points;
+    lastPoints = -Math.abs(points);
     successType = 'spend';
     showSuccess = true;
     
