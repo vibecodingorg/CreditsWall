@@ -2,3 +2,10 @@
 .wrangler/*
 node_modules/*
 .dev.vars
+wrangler.toml
+d1-backup.sql
+exports/
+.DS_Store
+*.sqlite
+*.sqlite3
+*.db
